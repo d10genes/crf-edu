@@ -1,0 +1,5 @@
+ipython[notebook]<4
+pandas
+seaborn
+autograd
+toolz
