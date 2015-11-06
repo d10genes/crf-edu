@@ -3,3 +3,5 @@ pandas
 seaborn
 autograd
 toolz
+flake8
+mypy-lang
