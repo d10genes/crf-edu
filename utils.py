@@ -25,15 +25,12 @@ class FeatUtils(type):
 
     @classmethod
     def mk_sum(cls, f):
-        a1 = ['yi', 'x', 'i']
-        a2 = ['yp', 'y', 'x', 'i']
-        ags = inspect.getargspec(f)
-        if ags.args == a1:
-            f2 = cls.sum1(f)
-        elif ags.args == a2:
-            f2 = cls.sum2(f)
-        else:
-            raise TypeError('Function must have arguments {} or {}'.format(a1, a2))
+        a1 = ['yp', 'y', 'x', 'i']
+
+        args = inspect.getargspec(f).args
+        args_strip_score = [a.rstrip('_') for a in args]
+        assert args_strip_score == a1, 'Function must have arguments {}. Not {}'.format(a1, args)
+        f2 = cls.sum2(f)
         return f2
 
     @staticmethod
@@ -43,13 +40,17 @@ class FeatUtils(type):
 
 
 class Fs():
+    """Define feature functions here, with args `yp, y, x, i`
+    To indicate an arg won't be used, append an underscore,
+    e.g., `yp, y, x_, i` if the x argument is ignored
+    """
     def post_mr(yp, y, x, i):  # optional keywords to not confuse mypy
         return (y == yp == 'NNP') and x[i - 1] == 'Mr.'
 
-    def cap_nnp(yi, x, i):
-        return (yi == 'NNP') and x[i][0].isupper()
+    def cap_nnp(yp, y, x, i):
+        return ((yp == 'NNP') or y == 'NNP') and x[i][0].isupper()
 
-    def dt_in(yp, y, x, i):
+    def dt_in(yp, y, x_, i):
         return (yp == 'DT') and (y == 'IN')
 
 
