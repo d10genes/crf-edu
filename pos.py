@@ -146,6 +146,52 @@ bigd = DataFrame(bigs).fillna(0)[tags].ix[tags]
 
 # In[ ]:
 
+from collections import Counter
+
+
+# In[ ]:
+
+wcts_all = defaultdict(Counter)
+for xi, yi in zip(X, Y):
+    for xw, yw in zip(xi, yi):
+        wcts_all[xw][yw] += 1
+
+
+# In[ ]:
+
+wcts = z.valfilter(lambda x: sum(x.values()) > 4, wcts_all)
+
+
+# In[ ]:
+
+wcts
+
+
+# In[ ]:
+
+cts = Series(z.valmap(lambda x: sum(x.values()), wcts))
+cts.value_counts(normalize=1)
+
+
+# In[ ]:
+
+wcts
+
+
+# In[ ]:
+
+c = Counter()
+c[1] += 1
+c
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
 y
 
 
@@ -238,10 +284,53 @@ def test_mats():
 
     assert all(resmat.NNP == 1)
     assert (resmat.drop('NNP', axis=1) == 0).all().all()
+    return 0
 
+def test_mats_2_args():
+    xt = 'Mr. Derp has Three capped words'.split()
+    testfs = z.keyfilter(lambda x: x in ('cap_nnp', 'post_mr'), fs)
+    stags = ['NNP', 'DT', 'IN', 'DERP']
+    wst = z.valmap(const(1), fs)
+
+    gft = mkgf(wst, testfs, stags, xt)
+    m0 = getmat(gft(0))
+    m1 = getmat(gft(1))
+
+    # First position should be the same
+    assert all(m0.NNP == 1)
+    assert (m0.drop('NNP', axis=1) == 0).all().all()
+    
+    # Second should get additional point from Mr. feature in position
+    # y-1 == NNP, y == NNP
+    assert m1.NNP.NNP == 2
+    # Subtracting that should give same matrix as original
+    m1c = m1.copy()
+    m1c.loc['NNP', 'NNP'] = m1.NNP.NNP - 1
+    assert_frame_equal(m1c, m0)
+    return gft
     return 0
 
 test_mats()
+gft = test_mats_2_args()
+
+
+# In[ ]:
+
+gf0 = gft(0)
+gf1 = gft(1)
+
+m0 = getmat(gft(0))
+m1 = getmat(gft(1))
+
+
+# In[ ]:
+
+m1
+
+
+# In[ ]:
+
+m0
 
 
 # In[ ]:
@@ -263,22 +352,28 @@ def getmat(gf):
                     for ytag in gf.tags})
     df.columns.name, df.index.name = 'Y', 'Yprev'
     return df
-gf = mkgf(ws, fs, tags, x)
+gf = mkgf(ws, fs, tags, ['Mr.', 'Happy', 'derp'])
 
 
 # In[ ]:
 
-gf.tags
+gf1 = gf(1)
+gf1
 
 
 # In[ ]:
 
-
+getmat(gf1)
 
 
 # In[ ]:
 
+x
 
+
+# In[ ]:
+
+gf1()
 
 
 # In[ ]:
@@ -294,41 +389,6 @@ for ytag1 in tags:
 
         1
 ytag1
-
-
-# In[ ]:
-
-gf(0)
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-fs.items()
-
-
-# In[ ]:
-
-fs
-
-
-# In[ ]:
-
-x
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-
 
 
 # In[ ]:
