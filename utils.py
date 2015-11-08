@@ -1,7 +1,8 @@
-import types  # type: ignore
 from functools import wraps
-from typing import Callable, List, Dict, TypeVar, Any
 import inspect  # type: ignore
+import types  # type: ignore
+import re
+from typing import Callable, List, Dict, TypeVar, Any
 import toolz.curried as z
 # from collections import OrderedDict
 
@@ -16,6 +17,31 @@ def todot(d: Dict[str, T]):
     d2 = lambda: None  # type: Any
     d2.__dict__ = d
     return d2
+
+
+def numargs(f: Callable[..., Any]) -> int:
+    argspec = inspect.getargspec(f)
+    args, defs = argspec.args, (argspec.defaults or [])
+    nargs, ndefs = len(args), len(defs)
+    return nargs - ndefs
+
+
+def justargs(f: Callable[..., Any]) -> List[str]:
+    "Return arg names, ignoring those with defaults"
+    return inspect.getargspec(f).args[:numargs(f)]
+
+
+def test_numargs():
+    def f1(a, b, c):
+        pass
+
+    def f2(a, b, c=None):
+        pass
+
+    assert justargs(f1) == ['a', 'b', 'c']
+    assert justargs(f2) == ['a', 'b']
+    assert numargs(f1) == 3
+    assert numargs(f2) == 2
 
 
 class FeatUtils(type):
@@ -45,7 +71,8 @@ class FeatUtils(type):
     def mk_sum(cls, f):
         a1 = ['yp', 'y', 'x', 'i']
 
-        args = inspect.getargspec(f).args
+        # args = inspect.getargspec(f).args
+        args = justargs(f)
         args_strip_score = [a.rstrip('_') for a in args]
         assert args_strip_score == a1, 'Function must have arguments {}. Not {}'.format(a1, args)
         f2 = cls.sum2(f)
@@ -66,8 +93,10 @@ class Fs():
         return (y == yp == 'NNP') and x[i - 1] == 'Mr.'
 
     def cap_nnp(yp_, y, x, i):
-        # return ((yp == 'NNP') or (y == 'NNP')) and x[i][0].isupper()
         return y == 'NNP' and x[i][0].isupper()
+
+    def dig_cd(yp_, y, x, i, p=re.compile(r'[\d\.]+')):
+        return y == 'CD' and bool(p.match(x[i]))
 
     def dt_in(yp, y, x_, i):
         return (yp == 'DT') and (y == 'IN')
@@ -97,9 +126,12 @@ def test_functions():
                      [' ', 'NNP', 'NNP', ' ']) == 1
     assert f.dt_in('derp', ['DT', 'IN']) == 1
     assert f.dt_in('derp', ['DT', 'INs']) == 0
+    assert f.dig_cd(['123', 'hi', 'the'], ['CD', 'INs', 'TAG']) == 1
+    assert f.dig_cd(['123', '1.23', 'the'], ['CD', 'CD', 'TAG']) == 2
 
 test_functions()
 
 
 if __name__ == '__main__':
     test_functions()
+    test_numargs()
