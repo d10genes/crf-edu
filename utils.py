@@ -1,9 +1,9 @@
-import types
+import types  # type: ignore
 from functools import wraps
 from typing import Callable, List, Dict
-# from collections import OrderedDict
-import inspect
+import inspect  # type: ignore
 import toolz.curried as z
+# from collections import OrderedDict
 
 
 class FeatUtils(type):
