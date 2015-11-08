@@ -3,14 +3,28 @@
 
 # In[ ]:
 
-from py3k_imports import *
+from py3k_imports import * 
 import project_imports3; reload(project_imports3); from project_imports3 import *
 
-# import warnings
-# warnings.filterwarnings('ignore')
+import warnings
+warnings.filterwarnings('ignore')
 
 pu.psettings(pd)
 pd.options.display.width = 200  # 150
+get_ipython().magic('matplotlib inline')
+
+
+# In[ ]:
+
+get_ipython().run_cell_magic('javascript', '', "IPython.keyboard_manager.command_shortcuts.add_shortcut('Ctrl-k','ipython.move-selected-cell-up')\nIPython.keyboard_manager.command_shortcuts.add_shortcut('Ctrl-j','ipython.move-selected-cell-down')\nIPython.keyboard_manager.command_shortcuts.add_shortcut('Shift-m','ipython.merge-selected-cell-with-cell-after')")
+
+
+# In[ ]:
+
+from collections import defaultdict
+import inspect
+if sys.version_info.major > 2:
+    unicode = str
 
 
 # from py3k_imports import *
@@ -118,6 +132,25 @@ txt[:100]
 
 # In[ ]:
 
+# common bigrams
+bigs = defaultdict(lambda: defaultdict(int))
+
+for y in Y:
+    for t1, t2 in zip(y[:-1], y[1:]):
+        bigs[t1][t2] += 1
+        
+bigd = DataFrame(bigs).fillna(0)[tags].ix[tags]
+# bigd
+# sns.clustermap(bigd, annot=1, figsize=(16, 20), fmt='.0f')
+
+
+# In[ ]:
+
+y
+
+
+# In[ ]:
+
 ' '.join(tags)
 
 
@@ -133,93 +166,41 @@ txt[:100]
 # F_j(\bar x, \bar y) = 
 # \sum_{i=1}^n f_j(y_{i-1}, y_i, \bar x, i)
 # $$
-# 
 
 # In[ ]:
 
-def enum(x):
-    return (i for i, _ in enumerate(x[:-1], 1))
+import utils; reload(utils)
+from utils import *
+# from utils import sum1, sum2, post_mr, mk_sum, F
 
 
 # In[ ]:
 
-def mkfeature_deco():
-    def high_feature(low):
-        @wraps(low)
-        def hi(xbar, ybar):
-            return sum(low(ybar[i - 1], ybar[i], xbar, i) for i in enum(xbar))
-        hi.low = low
-        high_feature.fs.append(hi)
-        return hi
-    fs = high_feature.fs = []  # OrderedDict()
-    return high_feature
+def eq(x):
+    return lambda y: x == y
 
-high_feature = mkfeature_deco()
+def sch(term, x=False):
+    f = eq(term) if isinstance(term, (str, unicode)) else term
+    ss = X if x else Y
+    for i, s in enumerate(ss):
+        if any(f(t) for t in s):
+            yield X[i], Y[i]
 
-@high_feature
-def is_capped(yp, y, x, i):
-    return x[i][0].isupper()
 
-@high_feature
-def has_period(yp, y, x, i):
-    return '.' in x[i]
+# In[ ]:
 
-@high_feature
-def noun_capped(yp, y, x, i):
-    return y == 'NN' and x[i][0].isupper()
+g = sch('Mr.', 1)
 
-# fs = [is_capped, has_period, noun_capped]
-ws = np.ones_like(high_feature.fs)
+
+# In[ ]:
+
+x, y = g.__next__()
 
 
 # In[ ]:
 
 x = X[0]
 y = Y[0]
-
-
-# In[ ]:
-
-def mkgi(xbar, ws, i):
-    def gi(ybar):
-        print(i-1, i)
-        return sum([f.low(ybar[i-1], ybar[i], xbar, i) * w for f, w in izip(fs, ws)])
-    return gi
-
-
-# In[ ]:
-
-[mkgi(x, ws, i)(y) for i in enum(x)]
-
-
-# In[ ]:
-
-x
-
-
-# In[ ]:
-
-y
-
-
-# In[ ]:
-
-mkgi(x, ws, 1)(y)
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-y
-
-
-# In[ ]:
-
-high_feature.fs.values()
 
 
 # ### Argmax
@@ -230,7 +211,188 @@ high_feature.fs.values()
 
 # In[ ]:
 
+fs
 
+
+# In[ ]:
+
+ws = np.ones_like(fs.values())
+ws = z.valmap(const(1), fs)
+ws
+
+
+# $$
+# g_i(y_ {i-1}, y_i) = \sum^J_{j=1} w_j f_j (y_ {i-1}, y_i, \bar x, i)
+# $$
+
+# In[ ]:
+
+def test_mats():
+    xt = 'Hi this has Two capped words'.split()
+    testfs = z.keyfilter(lambda x: x == 'cap_nnp', fs)
+    stags = ['NNP', 'DT', 'IN', 'DERP']
+    wst = z.valmap(const(1), fs)
+
+    gft = mkgf(wst, testfs, stags, xt)
+    resmat = getmat(gft(0))
+
+    assert all(resmat.NNP == 1)
+    assert (resmat.drop('NNP', axis=1) == 0).all().all()
+
+    return 0
+
+test_mats()
+
+
+# In[ ]:
+
+# def gf(ws, yp, y, xbar, i):
+#     return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
+
+def mkgf(ws, fs, tags, xbar):
+    #@z.curry
+    def gf(i):
+        def gfi(yp, y):
+            return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
+        gfi.tags = tags
+        return gfi
+    return gf
+
+def getmat(gf):
+    df = DataFrame({ytag: {ytag_prev: gf(ytag_prev, ytag) for ytag_prev in gf.tags}
+                    for ytag in gf.tags})
+    df.columns.name, df.index.name = 'Y', 'Yprev'
+    return df
+gf = mkgf(ws, fs, tags, x)
+
+
+# In[ ]:
+
+gf.tags
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+F.feats.values()
+
+
+# In[ ]:
+
+gf1 = gf(0)
+for ytag1 in tags:
+    for ytag2 in tags:
+
+        1
+ytag1
+
+
+# In[ ]:
+
+gf(0)
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+fs.items()
+
+
+# In[ ]:
+
+fs
+
+
+# In[ ]:
+
+x
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+f = fs['cap_nnp']
+f(None, 'NNP', ['Ca', 'lower'], 0)
+
+
+# In[ ]:
+
+d = getmat(gf(0))
+d
+
+
+# In[ ]:
+
+d = getmat(gf(1))
+d
+
+
+# In[ ]:
+
+getmat(gf(0))
+
+
+# In[ ]:
+
+x
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+DataFrame({ytag2: {ytag1: gf1(ytag1, ytag2) for ytag1 in tags}
+    for ytag2 in tags})
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+gf(ytag1, ytag2, 1)
+
+
+# In[ ]:
+
+f()
+
+
+# In[ ]:
+
+[ytag for ytag in tags]
 
 
 # ## Extra
