@@ -64,7 +64,6 @@ class FeatUtils(type):
         def fsum1(xbar: List[str], ybar: List[str]) -> int:
             return sum(f(None, yi, xbar, i) for i, yi in enumerate(ybar))
         ignore_yp = 'yp_' in inspect.getargspec(f).args
-
         return fsum1 if ignore_yp else fsum
 
     @classmethod
@@ -84,6 +83,12 @@ class FeatUtils(type):
                 if not fname.startswith('_') and isinstance(f, types.FunctionType)}
 
 
+def mk_word_tag(wd, tag):
+    def f(yp_, y, x, i):
+        return (x[i] == wd) and (y == tag)
+    return f
+
+
 class Fs():
     """Define feature functions here, with args `yp, y, x, i`
     To indicate an arg won't be used, append an underscore,
@@ -100,6 +105,18 @@ class Fs():
 
     def dt_in(yp, y, x_, i):
         return (yp == 'DT') and (y == 'IN')
+
+    wd_to = mk_word_tag('to', 'TO')
+    wd_of = mk_word_tag('of', 'IN')
+    wd_for = mk_word_tag('for', 'IN')
+    wd_in = mk_word_tag('in', 'IN')
+    wd_a = mk_word_tag('a', 'DT')
+    wd_the = mk_word_tag('the', 'DT')
+    wd_and = mk_word_tag('and', 'CC')
+
+    fst_dt = lambda yp_, y, x, i: (i == 0) and (y == 'DT')
+    fst_nnp = lambda yp_, y, x, i: (i == 0) and (y == 'NNP')
+    last_nn = lambda yp_, y, x, i: (i == len(x) - 1) and (y == 'NN')
 
 
 fs = FeatUtils.get_funcs(Fs)
@@ -128,6 +145,9 @@ def test_functions():
     assert f.dt_in('derp', ['DT', 'INs']) == 0
     assert f.dig_cd(['123', 'hi', 'the'], ['CD', 'INs', 'TAG']) == 1
     assert f.dig_cd(['123', '1.23', 'the'], ['CD', 'CD', 'TAG']) == 2
+    assert f.wd_to(['to', '1.23', 'the'], ['TO', 'CD', 'TAG']) == 1
+    assert f.last_nn(['to', '1.23', 'the'], ['TO', 'CD', 'TAG']) == 0
+    assert f.last_nn(['to', '1.23', 'the'], ['TO', 'CD', 'NN']) == 1
 
 test_functions()
 

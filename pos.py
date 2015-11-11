@@ -149,6 +149,11 @@ bigd = DataFrame(bigs).fillna(0)[tags].ix[tags]
 from collections import Counter
 
 
+#     Series(Counter(y[0] for y in Y)).order(ascending=0)[:5]
+#     Series(Counter(y[:2][-1] for y in Y)).order(ascending=0)[:4]
+# 
+#     Series(Counter(y[-2:][0] for y in Y)).order(ascending=0)[:4]
+
 # In[ ]:
 
 wcts_all = defaultdict(Counter)
@@ -162,33 +167,21 @@ for xi, yi in zip(X, Y):
 wcts = z.valfilter(lambda x: sum(x.values()) > 4, wcts_all)
 
 
-# In[ ]:
+#     stops = 'the of to a and in for that'.split()
+#     stops = Series(stops)
+#     z.reduceby()
+#     def get_max(d):
+#         k, v = max(d.items(), key=snd)
+#         return k, v / sum(d.values())
+# 
+#     get_max({'IN': 17, 'DT': 9202})
+#     s = stops.map(z.comp(get_max, wcts.get)).reset_index(drop=0).set_index(stops)[0].order(ascending=0).drop('that', axis=0)
+#     s
+#     s.index
 
-wcts
-
-
-# In[ ]:
-
-cts = Series(z.valmap(lambda x: sum(x.values()), wcts))
-cts.value_counts(normalize=1)
-
-
-# In[ ]:
-
-wcts
-
-
-# In[ ]:
-
-c = Counter()
-c[1] += 1
-c
-
-
-# In[ ]:
-
-
-
+#     cts = Series(z.valmap(lambda x: sum(x.values()), wcts))
+#     cts.value_counts(normalize=1)
+#     cts.order(ascending=0)
 
 # In[ ]:
 
@@ -262,7 +255,7 @@ fs
 
 # In[ ]:
 
-ws = np.ones_like(fs.values())
+# ws = np.ones_like(fs.values())
 ws = z.valmap(const(1), fs)
 ws
 
@@ -270,6 +263,30 @@ ws
 # $$
 # g_i(y_ {i-1}, y_i) = \sum^J_{j=1} w_j f_j (y_ {i-1}, y_i, \bar x, i)
 # $$
+
+# In[ ]:
+
+# def gf(ws, yp, y, xbar, i):
+#     return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
+
+def mkgf(ws, fs, tags, xbar):
+    #@z.curry
+    def gf(i):
+        def gfi(yp, y):
+            return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
+        gfi.tags = tags
+        return gfi
+    return gf
+
+def getmat(gf):
+    df = DataFrame({ytag: {ytag_prev: gf(ytag_prev, ytag) for ytag_prev in gf.tags}
+                    for ytag in gf.tags})
+    df.columns.name, df.index.name = 'Y', 'Yprev'
+    return df
+xx = ['Mr.', 'Doo', 'in', 'a', 'circus']
+gf = mkgf(ws, fs, tags, xx)
+# gf = mkgf(ws, fs, tags, ['Mr.', 'Happy', 'derp'])
+
 
 # In[ ]:
 
@@ -325,6 +342,199 @@ m1 = getmat(gft(1))
 
 # In[ ]:
 
+gf1 = gf(1)
+gf0 = gf(0)
+gf1
+
+
+# In[ ]:
+
+def init_u(m):
+    mu = m0.mean()
+    ymax = mu.idxmax()
+    return ymax, mu[ymax]
+
+
+# In[ ]:
+
+mu = m0.mean()
+ymax = mu.idxmax()
+mu[ymax]
+
+
+# In[ ]:
+
+init_u(m0)
+
+
+# In[ ]:
+
+u0 = getmat(gf(0)).mean()
+u0.iloc[:7]
+
+
+# In[ ]:
+
+(u1.add(u0, axis='index')).iloc[:7,:15]
+
+
+# In[ ]:
+
+def get_u(i: int, gf=gf, collect=True) -> '(max score, max ix)':
+    gmat = getmat(gf(i))
+    if not i:
+        u = gmat.mean()
+        return [u], [None]
+    uprevs, ixprevs = get_u(i - 1, gf=gf, collect=False)
+    uadd = gmat.add(uprevs[-1], axis='index')
+    retu, reti = uprevs + [uadd.max()], ixprevs + [uadd.idxmax()]
+    if not collect:
+        return retu, reti
+    return DataFrame({i: s for i, s in enumerate(retu)}), DataFrame({i: s for i, s in enumerate(reti)})
+    
+u, i = get_u(4, collect=1)
+
+
+# In[ ]:
+
+def most_likely_path(u):
+    revpath = []
+    revscore = []
+
+    for c in reversed(u.columns[:]):
+#         print(c)
+        ix = u[c].idxmax()
+        revscore.append(u[c][ix])
+        revpath.append(ix)
+        prevmax = i[c][ix]
+#         print('ix:', ix)
+#         print('prevmax:', prevmax)
+        if c:
+            assert u[c-1].max() == u[c-1][prevmax]
+    #     break
+    return revpath[::-1], revscore[::-1]
+
+
+# In[ ]:
+
+path, score = most_likely_path(u)
+
+
+# In[ ]:
+
+def predict(xbar, ybar, ws, fs):
+    gf = mkgf(ws, fs, tags, xbar)
+
+
+# In[ ]:
+
+path
+
+
+# In[ ]:
+
+path
+
+
+# In[ ]:
+
+xx
+
+
+# In[ ]:
+
+print(score)
+print(path)
+
+
+# In[ ]:
+
+i
+
+
+# In[ ]:
+
+
+prevmax
+
+
+# In[ ]:
+
+u
+
+
+# In[ ]:
+
+DataFrame(u)
+
+
+# In[ ]:
+
+xx
+
+
+# In[ ]:
+
+u0
+
+
+# In[ ]:
+
+uadd.idxmax()
+
+
+# In[ ]:
+
+uadd.max()
+
+
+# In[ ]:
+
+u0 = getmat(gf(0)).mean()
+gmat = getmat(gf(1))
+uadd = gmat.add(u0, axis='index')
+uadd
+
+
+# In[ ]:
+
+u1 = getmat(gf(1))
+u1.iloc[:7,:8]
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+# %timeit 
+u1.ix[ixm]
+
+
+# In[ ]:
+
+# %timeit
+u1.max()
+
+
+# $$U(k, v) = \max_u [U(k-1, u) + g_k(u,v)]$$
+# $$U(1, vec) = \max_{y_0} [U(0, y_0) + g_k(y_0,vec)]$$
+
+# In[ ]:
+
+ixmprev = u1.idxmax()
+ixmprev
+
+
+# In[ ]:
+
+m0
+
+
+# In[ ]:
+
 m1
 
 
@@ -335,30 +545,12 @@ m0
 
 # In[ ]:
 
-# def gf(ws, yp, y, xbar, i):
-#     return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
 
-def mkgf(ws, fs, tags, xbar):
-    #@z.curry
-    def gf(i):
-        def gfi(yp, y):
-            return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
-        gfi.tags = tags
-        return gfi
-    return gf
-
-def getmat(gf):
-    df = DataFrame({ytag: {ytag_prev: gf(ytag_prev, ytag) for ytag_prev in gf.tags}
-                    for ytag in gf.tags})
-    df.columns.name, df.index.name = 'Y', 'Yprev'
-    return df
-gf = mkgf(ws, fs, tags, ['Mr.', 'Happy', 'derp'])
 
 
 # In[ ]:
 
-gf1 = gf(1)
-gf1
+
 
 
 # In[ ]:
