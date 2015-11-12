@@ -208,9 +208,19 @@ y
 
 # In[ ]:
 
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
+
+
+# In[ ]:
+
 import utils; reload(utils)
 from utils import *
 # from utils import sum1, sum2, post_mr, mk_sum, F
+fs = AttrDict(fs)
+fsums = AttrDict(fsums)
 
 
 # In[ ]:
@@ -250,14 +260,8 @@ y = Y[0]
 
 # In[ ]:
 
-fs
-
-
-# In[ ]:
-
 # ws = np.ones_like(fs.values())
 ws = z.valmap(const(1), fs)
-ws
 
 
 # $$
@@ -284,6 +288,8 @@ def getmat(gf):
     df.columns.name, df.index.name = 'Y', 'Yprev'
     return df
 xx = ['Mr.', 'Doo', 'in', 'a', 'circus']
+yy = ['NNP', 'NNP', 'IN', 'DT', 'IN']
+
 gf = mkgf(ws, fs, tags, xx)
 # gf = mkgf(ws, fs, tags, ['Mr.', 'Happy', 'derp'])
 
@@ -375,29 +381,44 @@ u0.iloc[:7]
 
 # In[ ]:
 
+gf(0)
+
+
+# In[ ]:
+
 (u1.add(u0, axis='index')).iloc[:7,:15]
 
 
 # In[ ]:
 
-def get_u(i: int, gf=gf, collect=True) -> '(max score, max ix)':
+from typing import List
+
+
+# In[ ]:
+
+def s2df(xs: List[Series]) -> DataFrame:
+    return DataFrame({i: s for i, s in enumerate(xs)})
+
+def get_u(i: int, gf: "int -> (Y, Y') -> float"=gf, collect=True) -> '([max score], [max ix])':
+    """Recursively build up g_i matrices bottom up, adding y-1 score
+    to get max y score. Returns score
+    """
     gmat = getmat(gf(i))
     if not i:
-        u = gmat.mean()
-        return [u], [None]
+        return [gmat.mean()], [None]
     uprevs, ixprevs = get_u(i - 1, gf=gf, collect=False)
     uadd = gmat.add(uprevs[-1], axis='index')
     retu, reti = uprevs + [uadd.max()], ixprevs + [uadd.idxmax()]
     if not collect:
         return retu, reti
-    return DataFrame({i: s for i, s in enumerate(retu)}), DataFrame({i: s for i, s in enumerate(reti)})
+    return s2df(retu), s2df(reti)
     
 u, i = get_u(4, collect=1)
 
 
 # In[ ]:
 
-def most_likely_path(u):
+def most_likely_path(u: 'DataFrame[float]', i: 'DataFrame[Y]') -> (List[str], List[float]):
     revpath = []
     revscore = []
 
@@ -417,13 +438,53 @@ def most_likely_path(u):
 
 # In[ ]:
 
+path, score = most_likely_path(uu, ii)
+
+
+# In[ ]:
+
 path, score = most_likely_path(u)
 
 
 # In[ ]:
 
-def predict(xbar, ybar, ws, fs):
+def predict(xbar, ws, fs, tags):
     gf = mkgf(ws, fs, tags, xbar)
+    u, i = get_u(len(xbar) - 1, gf=gf, collect=True)
+#     return u, i
+#     print(u)
+    path, score = most_likely_path(u, i)
+    return path, score
+    
+path2, score2 = predict(['Mr.', 'Doo', 'is', 'in', 'a', 'circus'], ws, fs, tags)
+
+
+# In[ ]:
+
+predict(['Mr.', 'Doo', 'in', 'a', 'circus'], ws, fs, tags)
+
+
+# In[ ]:
+
+score2
+
+
+# In[ ]:
+
+path2
+
+
+# ##Gradient
+# $$\frac{\partial}{\partial w_j} \log p(y | x;w) = F_j (x, y) - E_{y' \sim  p(y | x;w) } [F_j(x,y')]$$
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+fsums.wd_a(xx)
 
 
 # In[ ]:
@@ -434,11 +495,6 @@ path
 # In[ ]:
 
 path
-
-
-# In[ ]:
-
-xx
 
 
 # In[ ]:
