@@ -7,6 +7,22 @@ import toolz.curried as z
 # from collections import OrderedDict
 
 T = TypeVar('T')
+START = 'START'
+END = 'END'
+enumx = lambda x: range(1, len(x) + 1)
+enumxy = z.comp(enumerate, enumx)
+
+
+def testprint(pred: bool) -> Callable[..., None]:
+    f = print if pred else (lambda *x, **kw: None)  # type: ignore
+    return f
+
+
+def test_enumxy():
+    x = [1, 2, 3, 4]
+    y = [START, 1, 2, 3, 4, END]
+    assert all([(x[i] == y[j]) for i, j in enumxy(x)])
+    assert [y[i] for i in enumx(x)] == x
 
 
 def const(x: T) -> Callable[..., T]:
@@ -45,35 +61,46 @@ def test_numargs():
 
 
 class FeatUtils(type):
-    @staticmethod
-    def sum1(f: Callable[[str, List[str], int], int]) -> Callable[[List[str], List[str]], int]:
-        "Return function that sums feature function `f` ∀ i in xbar"
-        @wraps(f)
-        def fsum(xbar: List[str], ybar: List[str]) -> int:
-            return sum(f(yi, xbar, i) for i, yi in enumerate(ybar))
-        return fsum
+    bookend = True
 
-    @staticmethod
-    def sum2(f: Callable[[str, str, List[str], int], int]) -> Callable[[List[str], List[str]], int]:
+    @classmethod
+    def sum2(cls, f: Callable[[str, str, List[str], int], int]) -> Callable[[List[str], List[str]], int]:
         "Return function that sums feature function `f` ∀ i in xbar"
-        @wraps(f)
-        def fsum(xbar: List[str], ybar: List[str]) -> int:
-            return sum(f(ybar[i - 1], ybar[i], xbar, i) for i, yi in enumerate(ybar[:-1], 1))
+        args_raw = inspect.getargspec(f).args
 
         @wraps(f)
-        def fsum1(xbar: List[str], ybar: List[str]) -> int:
-            return sum(f(None, yi, xbar, i) for i, yi in enumerate(ybar))
-        ignore_yp = 'yp_' in inspect.getargspec(f).args
-        return fsum1 if ignore_yp else fsum
+        def fsum_book(xbar: List[str], ybar: List[str]) -> int:
+            # if (len(ybar) - len(xbar) != 2) and isiter(xbar) and isiter(ybar):
+            if cls.bookend:
+                ybar_aug = cls.mkbookend(ybar)
+            else:
+                ybar_aug = ybar
+            # p = ybar_aug == ['START', 'NPP', 'CD', 'DDD', 'END']
+            # tt = testprint(p)
+            # tt(f)
+            # tt('ybar_aug:', ybar_aug)
+            # tt('xbar:', xbar)
+            # for xi, yi in enumxy(xbar):
+            #     if not p:
+            #         continue
+            #     tt('yi', yi, 'xi', xi)
+            #     tt('yp:', ybar_aug[yi - 1], 'y:', ybar_aug[yi], xbar, xi)
+            #     tt('yp == START:', ybar_aug[yi - 1] == START, 'y == NNP:', ybar_aug[yi] == 'NNP', xbar, xi)
+            #     tt('score: ', f(ybar_aug[yi - 1], ybar_aug[yi], xbar, xi))
+                # print(ybar_aug[yi - 1], ybar_aug[yi], xi)
+
+            if 'x' in args_raw:
+                return sum(f(ybar_aug[yi - 1], ybar_aug[yi], xbar, xi) for xi, yi in enumxy(xbar))
+            else:
+                return sum(f(ybar_aug[yi - 1], ybar_aug[yi], None, xi) for xi, yi in enumxy(ybar))
+        return fsum_book
 
     @classmethod
     def mk_sum(cls, f):
         a1 = ['yp', 'y', 'x', 'i']
-
-        # args = inspect.getargspec(f).args
         args = justargs(f)
         args_strip_score = [a.rstrip('_') for a in args]
-        assert args_strip_score == a1, 'Function must have arguments {}. Not {}'.format(a1, args)
+        assert args_strip_score[:4] == a1, 'Function must have arguments {}. Not {}'.format(a1, args)
         f2 = cls.sum2(f)
         return f2
 
@@ -81,6 +108,10 @@ class FeatUtils(type):
     def get_funcs(cls) -> Dict[str, Callable[..., bool]]:
         return {fname: f for fname, f in cls.__dict__.items()
                 if not fname.startswith('_') and isinstance(f, types.FunctionType)}
+
+    @staticmethod
+    def mkbookend(ybar):
+        return [START] + list(ybar) + [END]
 
 
 def mk_word_tag(wd, tag):
@@ -96,6 +127,7 @@ class Fs():
     """
     def post_mr(yp, y, x, i):  # optional keywords to not confuse mypy
         return (y == yp == 'NNP') and x[i - 1] == 'Mr.'
+        # return (y == yp == 'NNP') and x[i - 1] == 'Mr.'
 
     def cap_nnp(yp_, y, x, i):
         return y == 'NNP' and x[i][0].isupper()
@@ -115,7 +147,8 @@ class Fs():
     wd_and = mk_word_tag('and', 'CC')
 
     fst_dt = lambda yp_, y, x, i: (i == 0) and (y == 'DT')
-    fst_nnp = lambda yp_, y, x, i: (i == 0) and (y == 'NNP')
+    fst_nnp = lambda yp, y, x, i: (yp == START) and (y == 'NNP')
+    # fst_nnp = lambda yp_, y, x, i: (i == 0) and (y == 'NNP')
     last_nn = lambda yp_, y, x, i: (i == len(x) - 1) and (y == 'NN')
 
 
@@ -148,8 +181,11 @@ def test_functions():
     assert f.wd_to(['to', '1.23', 'the'], ['TO', 'CD', 'TAG']) == 1
     assert f.last_nn(['to', '1.23', 'the'], ['TO', 'CD', 'TAG']) == 0
     assert f.last_nn(['to', '1.23', 'the'], ['TO', 'CD', 'NN']) == 1
+    assert f.fst_dt(['to', '1.23', 'the'], ['DT', 'CD', 'NN']) == 1
+    assert f.fst_dt(['to', '1.23', 'the'], ['DT2', 'CD', 'NN']) == 0
+    assert f.fst_nnp(['to', '1.23', 'ddd'], ['NNP', 'CD', 'DDD']) == 1
 
-test_functions()
+# test_functions()
 
 
 if __name__ == '__main__':
