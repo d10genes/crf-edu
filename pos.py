@@ -10,7 +10,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 pu.psettings(pd)
-pd.options.display.width = 200  # 150
+pd.options.display.width = 150   # 200
 get_ipython().magic('matplotlib inline')
 
 
@@ -21,8 +21,10 @@ get_ipython().run_cell_magic('javascript', '', "IPython.keyboard_manager.command
 
 # In[ ]:
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 import inspect
+from typing import List
+
 if sys.version_info.major > 2:
     unicode = str
 
@@ -121,8 +123,8 @@ with open('data/pos.train.txt','r') as f:
 
 sents = filter(None, [zip(*[e.split() for e in sent.splitlines()]) for sent in txt[:].split('\n\n')])
 X = map(itg(0), sents)
-Y = map(itg(1), sents)
-tags = sorted({tag for y in Y for tag in y if tag.isalpha()})
+Y_ = map(itg(1), sents)
+tags = sorted({tag for y in Y_ for tag in y if tag.isalpha()})
 
 
 # In[ ]:
@@ -135,18 +137,13 @@ txt[:100]
 # common bigrams
 bigs = defaultdict(lambda: defaultdict(int))
 
-for y in Y:
+for y in Y_:
     for t1, t2 in zip(y[:-1], y[1:]):
         bigs[t1][t2] += 1
         
 bigd = DataFrame(bigs).fillna(0)[tags].ix[tags]
 # bigd
 # sns.clustermap(bigd, annot=1, figsize=(16, 20), fmt='.0f')
-
-
-# In[ ]:
-
-from collections import Counter
 
 
 #     Series(Counter(y[0] for y in Y)).order(ascending=0)[:5]
@@ -157,7 +154,7 @@ from collections import Counter
 # In[ ]:
 
 wcts_all = defaultdict(Counter)
-for xi, yi in zip(X, Y):
+for xi, yi in zip(X, Y_):
     for xw, yw in zip(xi, yi):
         wcts_all[xw][yw] += 1
 
@@ -185,7 +182,7 @@ wcts = z.valfilter(lambda x: sum(x.values()) > 4, wcts_all)
 
 # In[ ]:
 
-y
+' '.join(y)
 
 
 # In[ ]:
@@ -233,23 +230,38 @@ def sch(term, x=False):
     ss = X if x else Y
     for i, s in enumerate(ss):
         if any(f(t) for t in s):
-            yield X[i], Y[i]
+            yield X[i], Y_[i]
 
 
 # In[ ]:
 
-g = sch('Mr.', 1)
+Yb = map(FeatUtils.mkbookend, Y_)
 
 
 # In[ ]:
 
-x, y = g.__next__()
+enumx = lambda x: range(1, len(x) + 1)
+enumxy = lambda x: enumerate(range(1, len(x) + 1))
+
+def test_enumxy():
+    x = [1, 2, 3, 4]
+    y = ['START', 1, 2, 3, 4, 'END']
+    assert all([(x[i] == y[j]) for i, j in enumxy(x)])
+    assert [y[i] for i in enumx(x)] == x
+
+test_enumxy()
 
 
 # In[ ]:
 
-x = X[0]
-y = Y[0]
+# g = sch('Mr.', 1)
+# x, y = g.__next__()
+
+
+# In[ ]:
+
+x0 = X[0]
+y0 = Y_[0]
 
 
 # ### Argmax
@@ -280,6 +292,7 @@ def mkgf(ws, fs, tags, xbar):
             return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
         gfi.tags = tags
         return gfi
+    gf.xbar = xbar
     return gf
 
 def getmat(gf):
@@ -287,9 +300,9 @@ def getmat(gf):
                     for ytag in gf.tags})
     df.columns.name, df.index.name = 'Y', 'Yprev'
     return df
+
 xx = ['Mr.', 'Doo', 'in', 'a', 'circus']
 yy = ['NNP', 'NNP', 'IN', 'DT', 'IN']
-
 gf = mkgf(ws, fs, tags, xx)
 # gf = mkgf(ws, fs, tags, ['Mr.', 'Happy', 'derp'])
 
@@ -298,10 +311,10 @@ gf = mkgf(ws, fs, tags, xx)
 
 def test_mats():
     xt = 'Hi this has Two capped words'.split()
-    testfs = z.keyfilter(lambda x: x == 'cap_nnp', fs)
     stags = ['NNP', 'DT', 'IN', 'DERP']
     wst = z.valmap(const(1), fs)
 
+    testfs = dict(cap_nnp=fs['cap_nnp'])
     gft = mkgf(wst, testfs, stags, xt)
     resmat = getmat(gft(0))
 
@@ -349,9 +362,11 @@ gf0 = gf(0)
 gf1
 
 
+# ### Generate maximum score matrix U
+
 # In[ ]:
 
-def init_u(m):
+def init_u(m0):
     mu = m0.mean()
     ymax = mu.idxmax()
     return ymax, mu[ymax]
@@ -377,28 +392,15 @@ u0.iloc[:7]
 
 # In[ ]:
 
-gf(0)
-
-
-# In[ ]:
-
-(u1.add(u0, axis='index')).iloc[:7,:15]
-
-
-# In[ ]:
-
-from typing import List
-
-
-# In[ ]:
-
 def s2df(xs: List[Series]) -> DataFrame:
     return DataFrame({i: s for i, s in enumerate(xs)})
 
-def get_u(i: int, gf: "int -> (Y, Y') -> float"=gf, collect=True) -> '([max score], [max ix])':
+def get_u(i: int=None, gf: "int -> (Y, Y') -> float"=gf, collect=True) -> '([max score], [max ix])':
     """Recursively build up g_i matrices bottom up, adding y-1 score
     to get max y score. Returns score
     """
+    if i is None:
+        return get_u(i=len(gf.xbar) - 1, gf=gf, collect=collect)
     gmat = getmat(gf(i))
     if not i:
         return [gmat.mean()], [None]
@@ -410,6 +412,63 @@ def get_u(i: int, gf: "int -> (Y, Y') -> float"=gf, collect=True) -> '([max scor
     return s2df(retu), s2df(reti)
     
 u, i = get_u(4, collect=1)
+
+
+# In[ ]:
+
+ut, it = get_u(gf=gft, collect=True)
+ut
+
+
+# In[ ]:
+
+mk_word_tag
+
+
+# In[ ]:
+
+fs2 = [('wd1', 'TAG1'), ('wd', 'TAG'), ('wd3', 'TAG3'), ('wd4', 'TAG4'),
+      (lambda yp_, y, x, i: ()]
+fs2
+
+
+# In[ ]:
+
+mk_word_tag('wd1', 'TAG1')
+
+
+# In[ ]:
+
+def test_likely_path():
+    testfs_str = 'wd_to wd_of wd_for wd_in wd_a wd_the wd_and'.split()
+    testfs = z.keyfilter(lambda x: x in testfs_str, fs)
+    wst = z.valmap(const(1), testfs)
+    stags = 'Junk1 Junk2 TO IN DT CC Junk3 Junk4'.split()
+    
+    xt = 'of for in the and a to'.split()
+    gft = mkgf(wst, testfs, stags, xt)
+    # gft = mkgf(wst, testfs, stags, xt)
+    u, i = get_u(gf=gft, collect=True)
+    
+    shouldbe_dims = len(stags), len(xt)
+    assert u.shape == shouldbe_dims, ('Shape of score matrix is wrong. '
+                                      'Actual: {}, Expected: {}'.format(u.shape, shouldbe_dims))
+    assert most_likely_path(u, i) == [None, 'IN', 'IN', 'IN', 'DT', 'CC', 'DT', 'TO']
+    
+test_likely_path()
+
+
+# In[ ]:
+
+xt = 'Hi this has Two capped words'.split()
+
+
+resmat = getmat(gft(0))
+
+
+# In[ ]:
+
+gft = mkgf()
 
 
 # In[ ]:
@@ -434,12 +493,13 @@ def most_likely_path(u: 'DataFrame[float]', i: 'DataFrame[Y]') -> (List[str], Li
 
 # In[ ]:
 
-path, score = most_likely_path(uu, ii)
+# path, score = most_likely_path(uu, ii)
+path, score = most_likely_path(u, i)
 
 
 # In[ ]:
 
-path, score = most_likely_path(u)
+path
 
 
 # In[ ]:
@@ -460,18 +520,139 @@ path2, score2 = predict(['Mr.', 'Doo', 'is', 'in', 'a', 'circus'], ws, fs, tags)
 predict(['Mr.', 'Doo', 'in', 'a', 'circus'], ws, fs, tags)
 
 
-# In[ ]:
-
-score2
-
-
-# In[ ]:
-
-path2
-
-
 # ##Gradient
 # $$\frac{\partial}{\partial w_j} \log p(y | x;w) = F_j (x, y) - E_{y' \sim  p(y | x;w) } [F_j(x,y')]$$
+# 
+# $$\alpha (0,y) = I(y=start)$$
+# $$\alpha (k + 1,v) = \sum_u \alpha (k,u)[\exp g_{k+1}(u,v)] \in ℝ^m$$
+
+# In[ ]:
+
+ts = Series(tags)
+y = yy
+y
+
+
+# In[ ]:
+
+V = ts
+v0 = v[0]
+v0
+
+
+# In[ ]:
+
+k = 0
+# vi = 
+y0 = y[0]
+a0 = Series(list(y0 == ts), index=ts)
+# a0.reset_index(drop=0)[:15].T.ix[[0]]
+a0
+
+
+# In[ ]:
+
+gfa = mkgf(ws, fs, tags, xx)
+g1 = gfa(1)
+
+
+# In[ ]:
+
+del forwarder
+
+
+# In[ ]:
+
+def forward(x, y, V, ws, fs) -> List[Series]:
+    """Unnormalized probability of set of possible sequences that end at position
+    `col` with tag `row`
+    """
+    mka = lambda x: Series(list(x), index=V)
+    mkg = mkgf(ws, fs, V, x)
+    def mkforward(i=0, aprevs=None):
+        if not i:
+            return mkforward(i=i + 1, aprevs=[mka(y[i] == V)])
+        if i >= len(y):
+            return aprevs
+        aprev = aprevs[-1]
+        gk = mkg(i)
+        ai = mka([sum(aprev[u] * np.e ** gk(u, v) for u in V) for v in V])
+        return mkforward(i=i + 1, aprevs=aprevs + [ai])
+    return DataFrame(mkforward()).T
+
+
+# In[ ]:
+
+z.operator.sub(1)(9)
+
+
+# In[ ]:
+
+def backward(x, y, V, ws, fs) -> List[Series]:
+    mksrs = lambda x: Series(list(x), index=V)
+    mkg = mkgf(ws, fs, V, x)
+    i_init = len(y)-1
+    i_fin = -1
+    nxt = lambda x: x - 1
+    
+    def mkprobvec(i=i_init, pprevs=None):
+        if i == i_init:
+            return mkprobvec(i=nxt(i), pprevs=[mksrs(y[i] == V)])
+        if i == i_fin:
+            return pprevs
+        pprev = pprevs[-1]
+        gk = mkg(i)
+        ai = mksrs([sum(pprev[inv] * np.e ** gk(outv, inv) for inv in V) for outv in V])
+        return mkprobvec(i=nxt(i), pprevs=pprevs + [ai])
+    return DataFrame(mkprobvec()[::-1]).T
+
+
+# In[ ]:
+
+DataFrame([xx, yy])
+
+
+# In[ ]:
+
+aa
+
+
+# In[ ]:
+
+bb = backward(xx, yy, ts, ws, fs)
+bb
+
+
+# In[ ]:
+
+yy
+
+
+# In[ ]:
+
+aa = forward(xx, yy, ts, ws, fs)
+aa.iloc[:, -1].sum()
+
+
+# In[ ]:
+
+bb.sum().sum()
+
+
+# In[ ]:
+
+[sum(a0[u] * np.e ** g1(u, v) for u in ts) for v in ts]
+
+
+# In[ ]:
+
+[np.e ** sum(g1(u, v) for u in ts) for v in ts]
+
+
+# In[ ]:
+
+
+
 
 # In[ ]:
 
