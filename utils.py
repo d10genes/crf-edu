@@ -2,27 +2,26 @@ from functools import wraps
 import inspect  # type: ignore
 import types  # type: ignore
 import re
-from typing import Callable, List, Dict, TypeVar, Any
+from typing import Callable, List, Dict, TypeVar, Any  # , Tuple
 import toolz.curried as z
+from pandas import DataFrame  # type: ignore
 # from collections import OrderedDict
 
 T = TypeVar('T')
 START = 'START'
 END = 'END'
-enumx = lambda x: range(1, len(x) + 1)
-enumxy = z.comp(enumerate, enumx)
+mkwts1 = lambda dct: {k: 1 for k in dct}
+
+
+class FuncSums(object):
+    def __call__(self, y: str, x: str) -> float:  # #type: Callable[[str, str], float]
+        pass
+    tags = ['']
 
 
 def testprint(pred: bool) -> Callable[..., None]:
     f = print if pred else (lambda *x, **kw: None)  # type: ignore
     return f
-
-
-def test_enumxy():
-    x = [1, 2, 3, 4]
-    y = [START, 1, 2, 3, 4, END]
-    assert all([(x[i] == y[j]) for i, j in enumxy(x)])
-    assert [y[i] for i in enumx(x)] == x
 
 
 def const(x: T) -> Callable[..., T]:
@@ -47,62 +46,86 @@ def justargs(f: Callable[..., Any]) -> List[str]:
     return inspect.getargspec(f).args[:numargs(f)]
 
 
-def test_numargs():
-    def f1(a, b, c):
-        pass
+def debugger(f):
+    @wraps(f)
+    def debug(*a, **kw):
+        try:
+            return f(*a, **kw)
+        except Exception as e:
+            print(f, 'args:', a, 'kwargs:', kw)
+            print('attrs:', debug.base_f.__dict__)
+            raise(e)
 
-    def f2(a, b, c=None):
-        pass
+    debug.base_f = f
+    return debug
 
-    assert justargs(f1) == ['a', 'b', 'c']
-    assert justargs(f2) == ['a', 'b']
-    assert numargs(f1) == 3
-    assert numargs(f2) == 2
+
+def mkgf(ws, fs, tags, xbar):
+    # @z.curry
+    def gf(i):
+        # @debugger
+        def gfi(yp, y):
+            return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
+        # print(gfi.base_f.__dict__)
+        gfi.tags = tags  # gfi.base_f.tags =
+        gfi.i = i  # gfi.base_f.i =
+        return gfi
+    gf.xbar = xbar
+    gf.tags = tags
+    return gf
+
+
+def getmat(gf: FuncSums) -> Any:
+    "((yp, y) -> float) -> (Df[Yprev x Y] -> float)"
+    df = DataFrame({ytag: {ytag_prev: gf(ytag_prev, ytag) for ytag_prev in gf.tags}
+                    for ytag in gf.tags})  # type: ignore
+    df.columns.name, df.index.name = 'Y', 'Yprev'
+    return df
 
 
 class FeatUtils(type):
     bookend = True
 
     @classmethod
-    def sum2(cls, f: Callable[[str, str, List[str], int], int]) -> Callable[[List[str], List[str]], int]:
-        "Return function that sums feature function `f` ∀ i in xbar"
-        args_raw = inspect.getargspec(f).args
-
-        @wraps(f)
+    def mk_sum2(cls, f: Callable[[str, str, List[str], int], int]) -> Callable[[List[str], List[str]], int]:
         def fsum_book(xbar: List[str], ybar: List[str]) -> int:
-            # if (len(ybar) - len(xbar) != 2) and isiter(xbar) and isiter(ybar):
-            if cls.bookend:
-                ybar_aug = cls.mkbookend(ybar)
-            else:
-                ybar_aug = ybar
-            # p = ybar_aug == ['START', 'NPP', 'CD', 'DDD', 'END']
-            # tt = testprint(p)
-            # tt(f)
-            # tt('ybar_aug:', ybar_aug)
-            # tt('xbar:', xbar)
-            # for xi, yi in enumxy(xbar):
-            #     if not p:
-            #         continue
-            #     tt('yi', yi, 'xi', xi)
-            #     tt('yp:', ybar_aug[yi - 1], 'y:', ybar_aug[yi], xbar, xi)
-            #     tt('yp == START:', ybar_aug[yi - 1] == START, 'y == NNP:', ybar_aug[yi] == 'NNP', xbar, xi)
-            #     tt('score: ', f(ybar_aug[yi - 1], ybar_aug[yi], xbar, xi))
-                # print(ybar_aug[yi - 1], ybar_aug[yi], xi)
-
-            if 'x' in args_raw:
-                return sum(f(ybar_aug[yi - 1], ybar_aug[yi], xbar, xi) for xi, yi in enumxy(xbar))
-            else:
-                return sum(f(ybar_aug[yi - 1], ybar_aug[yi], None, xi) for xi, yi in enumxy(ybar))
+            """Convert function of f(yp, y, xbar, i) to one that sums over all
+            i's: F(xbar, ybar)
+            """
+            yb = AugmentY(ybar)
+            xb = EasyList(xbar)
+            # print(xb)
+            # for i in range(1, len(yb.aug)):
+            #     print(i, end=' ')
+            #     print('yp:', yb.aug[i - 1], 'y:', yb.aug[i], 'x[i]:', xb[i])
+            return sum(f(yb.aug[i - 1], yb.aug[i], xb, i) for i in range(1, len(yb.aug)))
+            fsum_book.base_f = f
+            fsum_book.__doc__ = '\n'.join([f.__doc__, fsum_book.__doc__])
         return fsum_book
 
     @classmethod
-    def mk_sum(cls, f):
+    def mk_sum(cls, f: Callable[[str, str, List[str], int], int]) -> Callable[[List[str], List[str]], int]:
+        def fsum_book(xbar: List[str], ybar: List[str]) -> int:
+            """Convert function of f(yp, y, xbar, i) to one that sums over all
+            i's: F(xbar, ybar)
+            """
+            yb = AugmentY(ybar)
+            xb = EasyList(xbar)
+    #         print(xb)
+    #         for i in range(1, len(yb.aug)):
+    #             print(i, end=' ')
+    #             print('yp:', yb.aug[i - 1], 'y:', yb.aug[i], 'x[i]:', xb[i])
+            return sum(f(yb.aug[i - 1], yb.aug[i], xb, i) for i in range(1, len(yb.aug)))
+            fsum_book.base_f = f
+            fsum_book.__doc__ = '\n'.join([f.__doc__, fsum_book.__doc__])
+        return fsum_book
+
+    @staticmethod
+    def check_args(f):
         a1 = ['yp', 'y', 'x', 'i']
         args = justargs(f)
         args_strip_score = [a.rstrip('_') for a in args]
         assert args_strip_score[:4] == a1, 'Function must have arguments {}. Not {}'.format(a1, args)
-        f2 = cls.sum2(f)
-        return f2
 
     @staticmethod
     def get_funcs(cls) -> Dict[str, Callable[..., bool]]:
@@ -117,7 +140,50 @@ class FeatUtils(type):
 def mk_word_tag(wd, tag):
     def f(yp_, y, x, i):
         return (x[i] == wd) and (y == tag)
+    f.__name__ = '{}_eq_{}'.format(wd, tag)
+    f.__doc__ = '(x[i] == {}) and (y == {})'.format(wd, tag)
     return f
+
+
+OutOfBounds = object()
+
+
+class EasyList(list):
+    """1-based indexed list that is forgiving with trying to access out of bounds.
+    This way generic functions can be used that try to access arbitrary relative positions."""
+    def __init__(self, lst=[], verbose=False):
+        self.verbose = verbose
+        super().__init__(lst)
+
+    def __getitem__(self, ix):
+        if ix < 0:
+            ix_ = ix
+        elif not ix:
+            ix_ = len(self)
+        else:
+            ix_ = ix - 1
+        try:
+            return super().__getitem__(ix_)
+        except IndexError:
+            if self.verbose:
+                print('{} out of bounds with list of length {}'.format(ix, len(self)))
+            return OutOfBounds
+
+    def __repr__(self):
+        res = super().__repr__()
+        return 'EasyList' + res
+
+    def __setitem__(self, ix, val):
+        raise NotImplementedError
+
+
+class AugmentY(object):
+    def __init__(self, l):
+        self._orig = l._orig if isinstance(l, AugmentY) else l
+        self.aug = [START] + list(l) + [END]  # type: List
+
+    def __repr__(self):
+        return 'Aug' + repr(self._orig)
 
 
 class Fs():
@@ -146,10 +212,9 @@ class Fs():
     wd_the = mk_word_tag('the', 'DT')
     wd_and = mk_word_tag('and', 'CC')
 
-    fst_dt = lambda yp_, y, x, i: (i == 0) and (y == 'DT')
+    fst_dt = lambda yp, y, x, i: (yp == START) and (y == 'DT')
     fst_nnp = lambda yp, y, x, i: (yp == START) and (y == 'NNP')
-    # fst_nnp = lambda yp_, y, x, i: (i == 0) and (y == 'NNP')
-    last_nn = lambda yp_, y, x, i: (i == len(x) - 1) and (y == 'NN')
+    last_nn = lambda yp, y, x, i: (yp == 'NN') and (y == END)
 
 
 fs = FeatUtils.get_funcs(Fs)
@@ -190,4 +255,3 @@ def test_functions():
 
 if __name__ == '__main__':
     test_functions()
-    test_numargs()

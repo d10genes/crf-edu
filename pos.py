@@ -211,10 +211,11 @@ class AttrDict(dict):
         self.__dict__ = self
 
 
+# # Imports
+
 # In[ ]:
 
-import utils; reload(utils)
-from utils import *
+import utils; reload(utils); from utils import *
 # from utils import sum1, sum2, post_mr, mk_sum, F
 fs = AttrDict(fs)
 fsums = AttrDict(fsums)
@@ -282,24 +283,13 @@ ws = z.valmap(const(1), fs)
 
 # In[ ]:
 
+Df = Dict
+
+
+# In[ ]:
+
 # def gf(ws, yp, y, xbar, i):
 #     return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
-
-def mkgf(ws, fs, tags, xbar):
-    #@z.curry
-    def gf(i):
-        def gfi(yp, y):
-            return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
-        gfi.tags = tags
-        return gfi
-    gf.xbar = xbar
-    return gf
-
-def getmat(gf):
-    df = DataFrame({ytag: {ytag_prev: gf(ytag_prev, ytag) for ytag_prev in gf.tags}
-                    for ytag in gf.tags})
-    df.columns.name, df.index.name = 'Y', 'Yprev'
-    return df
 
 xx = ['Mr.', 'Doo', 'in', 'a', 'circus']
 yy = ['NNP', 'NNP', 'IN', 'DT', 'IN']
@@ -307,60 +297,17 @@ gf = mkgf(ws, fs, tags, xx)
 # gf = mkgf(ws, fs, tags, ['Mr.', 'Happy', 'derp'])
 
 
-# In[ ]:
-
-def test_mats():
-    xt = 'Hi this has Two capped words'.split()
-    stags = ['NNP', 'DT', 'IN', 'DERP']
-    wst = z.valmap(const(1), fs)
-
-    testfs = dict(cap_nnp=fs['cap_nnp'])
-    gft = mkgf(wst, testfs, stags, xt)
-    resmat = getmat(gft(0))
-
-    assert all(resmat.NNP == 1)
-    assert (resmat.drop('NNP', axis=1) == 0).all().all()
-    return 0
-
-def test_mats_2_args():
-    xt = 'Mr. Derp has Three capped words'.split()
-    testfs = z.keyfilter(lambda x: x in ('cap_nnp', 'post_mr'), fs)
-    stags = ['NNP', 'DT', 'IN', 'DERP']
-    wst = z.valmap(const(1), fs)
-
-    gft = mkgf(wst, testfs, stags, xt)
-    m0 = getmat(gft(0))
-    m1 = getmat(gft(1))
-
-    # First position should be the same
-    assert all(m0.NNP == 1)
-    assert (m0.drop('NNP', axis=1) == 0).all().all()
-    
-    # Second should get additional point from Mr. feature in position
-    # y-1 == NNP, y == NNP
-    assert m1.NNP.NNP == 2
-    # Subtracting that should give same matrix as original
-    m1c = m1.copy()
-    m1c.loc['NNP', 'NNP'] = m1.NNP.NNP - 1
-    assert_frame_equal(m1c, m0)
-    return gft
-    return 0
-
-test_mats()
-gft = test_mats_2_args()
-gf0 = gft(0)
-gf1 = gft(1)
-
-m0 = getmat(gft(0))
-m1 = getmat(gft(1))
-
-
-# In[ ]:
-
-gf1 = gf(1)
-gf0 = gf(0)
-gf1
-
+#     test_mats()
+#     gft = test_mats_2_args()
+#     gf0 = gft(0)
+#     gf1 = gft(1)
+# 
+#     m0 = getmat(gft(0))
+#     m1 = getmat(gft(1))
+# 
+#     gf1 = gf(1)
+#     gf0 = gf(0)
+#     gf1
 
 # ### Generate maximum score matrix U
 
@@ -371,23 +318,72 @@ def init_u(m0):
     ymax = mu.idxmax()
     return ymax, mu[ymax]
 
+def init_score(tags, tag=START):
+    "Base case for recurrent score calculation U"
+    i = Series(0, index=tags)
+    i.loc[tag] = 1
+    return i
+
+
+#     f = fs2['eq_wd1']
+#     f('START', 'TAG1', xt2, 2)
+# 
+#     F = Fs2['eq_wd2']
+#     F(xt2, yt2)
 
 # In[ ]:
 
-mu = m0.mean()
-ymax = mu.idxmax()
-mu[ymax]
+
 
 
 # In[ ]:
 
-init_u(m0)
+fs = test_getu.fs
+f = fs['pre_end']
 
 
 # In[ ]:
 
-u0 = getmat(gf(0)).mean()
-u0.iloc[:7]
+f(0, END, EasyList(['wd1', 'pre-end']), 3)
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+def test_getu():
+    tgs = [START, 'TAG1', END]
+    fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1')}
+    ytpred = [START, 'TAG1', END]
+    x = EasyList(['wd1'])
+    
+    gf = mkgf(mkwts1(fs), fs, tgs, x)
+    u, i = get_u(gf=gf, collect=True)
+    assert (u.idxmax() == ytpred).all()
+    assert u.iloc[:, -1].max() == 2
+    
+    fs['pre_end'] = lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)
+    ws = mkwts1(fs)
+    ws['pre_end'] = 3
+    x2 = EasyList(['wd1', 'pre-end'])
+    gf2 = mkgf(ws, fs, tgs, x2)
+    assert all(getmat(gf2(3))[END] == 3)
+    test_getu.gf2 = gf2
+    test_getu.fs = fs
+    u2, i2 = get_u(gf=gf2, collect=True)
+    assert (u2.idxmax() == [START, 'TAG1', END, END]).all()
+    # 3rd value for predicted sequence is END, but only because it is first in index order
+    assert u2[2].nunique() == 1, '3rd predicted tag should have same score for all v`s'
+    assert u2.iloc[:, -1].max() == 5
+    return u2
+    
+u = test_getu()
+g = test_getu.gf2
+fs = test_getu.fs
+u
 
 
 # In[ ]:
@@ -395,46 +391,108 @@ u0.iloc[:7]
 def s2df(xs: List[Series]) -> DataFrame:
     return DataFrame({i: s for i, s in enumerate(xs)})
 
-def get_u(i: int=None, gf: "int -> (Y, Y') -> float"=gf, collect=True) -> '([max score], [max ix])':
+def get_u(k: int=None, gf: "int -> (Y, Y') -> float"=gf, collect=True) -> '([max score], [max ix])':
     """Recursively build up g_i matrices bottom up, adding y-1 score
-    to get max y score. Returns score
+    to get max y score. Returns score.
+    - k is in terms of y vector, which is augmented with beginning and end tags
     """
-    if i is None:
-        return get_u(i=len(gf.xbar) - 1, gf=gf, collect=collect)
-    gmat = getmat(gf(i))
-    if not i:
-        return [gmat.mean()], [None]
-    uprevs, ixprevs = get_u(i - 1, gf=gf, collect=False)
+    pt = testprint(0)
+    imx = len(gf.xbar) + 1
+    if k is None:
+        pt(gf.xbar)
+        return get_u(imx, gf=gf, collect=1)
+
+    if k == 0:
+        return [init_score(gf.tags, START)], [START]
+
+    uprevs, ixprevs = get_u(k - 1, gf=gf, collect=False)
+
+#         return 
+#         return uprevs + [init_score(gf.tags, END)], ixprevs + initi
+
+    gmat = getmat(gf(k))
+    if k == imx and 0:
+        gmat = gmat[[END]]
     uadd = gmat.add(uprevs[-1], axis='index')
-    retu, reti = uprevs + [uadd.max()], ixprevs + [uadd.idxmax()]
+    get_u.gmat = gmat
+    get_u.uadd = uadd
+    pt('\n', k)
+    pt(gf.xbar[k], )
+    pt(gmat)
+    pt('\nuadd')
+    pt(uadd)
+
+    if k == 1:
+        idxmax = uadd.ix[START].idxmax()
+    elif k == imx:
+        idxmax = END
+    else:
+        idxmax = uadd.idxmax()
+    pt('idxmax:', idxmax)
+    retu, reti = uprevs + [uadd.max()], ixprevs + [idxmax]
     if not collect:
         return retu, reti
-    return s2df(retu), s2df(reti)
-    
-u, i = get_u(4, collect=1)
+    return s2df(retu), reti  # s2df(reti)
+
+# u2, i2 = get_u(gf=gft2, collect=True)
+# u2
+# u, k = get_u(4, collect=1)
 
 
 # In[ ]:
 
-ut, it = get_u(gf=gft, collect=True)
-ut
+u2.idxmax()
 
 
 # In[ ]:
 
-mk_word_tag
+i2
+
+
+# # Import2
+
+# In[ ]:
+
+import utils; reload(utils); from utils import *
+# from utils import sum1, sum2, post_mr, mk_sum, F
+fs = AttrDict(fs)
+fsums = AttrDict(fsums)
 
 
 # In[ ]:
 
-fs2 = [('wd1', 'TAG1'), ('wd', 'TAG'), ('wd3', 'TAG3'), ('wd4', 'TAG4'),
-      (lambda yp_, y, x, i: ()]
-fs2
+xt2
 
 
 # In[ ]:
 
-mk_word_tag('wd1', 'TAG1')
+def post_mr(yp, y, x, i):  # optional keywords to not confuse mypy
+    return (y == yp == 'NNP') & (x[i - 1] == 'Mr.')
+
+last_nn = lambda yp_, y, x, i: (i == len(x) - 1) and (y == 'NN')
+last_nn = lambda yp, y, x, i: (yp == 'NNP') and (y == END)
+
+F = mk_sum(post_mr)
+# F(['wd0', 'Mr.', 'pre-end'], ['TAG3', 'NNP', 'NNP'])
+F = mk_sum(last_nn)
+F(['to', '1.23', 'the'], ['TO', 'CD', 'NN'])
+
+
+# In[ ]:
+
+yt2
+
+
+# In[ ]:
+
+for i in range(1, len(yt2)):
+    print(i, end=' ')
+    print(yt2[i])
+
+
+# In[ ]:
+
+
 
 
 # In[ ]:
@@ -442,7 +500,7 @@ mk_word_tag('wd1', 'TAG1')
 def test_likely_path():
     testfs_str = 'wd_to wd_of wd_for wd_in wd_a wd_the wd_and'.split()
     testfs = z.keyfilter(lambda x: x in testfs_str, fs)
-    wst = z.valmap(const(1), testfs)
+    wst = mkwts1(testfs)
     stags = 'Junk1 Junk2 TO IN DT CC Junk3 Junk4'.split()
     
     xt = 'of for in the and a to'.split()
@@ -458,18 +516,9 @@ def test_likely_path():
 test_likely_path()
 
 
-# In[ ]:
-
-xt = 'Hi this has Two capped words'.split()
-
-
-resmat = getmat(gft(0))
-
-
-# In[ ]:
-
-gft = mkgf()
-
+#     xt = 'Hi this has Two capped words'.split()
+#     resmat = getmat(gft(0))
+#     gft = mkgf()
 
 # In[ ]:
 
