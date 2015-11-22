@@ -2,4 +2,4 @@
 # Dev
 
     export MYPYPATH=`pwd`/stubs
-    echo "utils.py" | entr sh -c 'mypy utils.py && python utils.py && echo "=> LOOKS GOOD!"'
+    echo "utils.py" | entr onchange.sh
