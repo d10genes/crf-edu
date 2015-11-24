@@ -24,6 +24,7 @@ get_ipython().run_cell_magic('javascript', '', "IPython.keyboard_manager.command
 from collections import defaultdict, Counter
 import inspect
 from typing import List
+Y = str
 
 if sys.version_info.major > 2:
     unicode = str
@@ -234,30 +235,7 @@ def sch(term, x=False):
             yield X[i], Y_[i]
 
 
-# In[ ]:
-
-Yb = map(FeatUtils.mkbookend, Y_)
-
-
-# In[ ]:
-
-enumx = lambda x: range(1, len(x) + 1)
-enumxy = lambda x: enumerate(range(1, len(x) + 1))
-
-def test_enumxy():
-    x = [1, 2, 3, 4]
-    y = ['START', 1, 2, 3, 4, 'END']
-    assert all([(x[i] == y[j]) for i, j in enumxy(x)])
-    assert [y[i] for i in enumx(x)] == x
-
-test_enumxy()
-
-
-# In[ ]:
-
-# g = sch('Mr.', 1)
-# x, y = g.__next__()
-
+# Yb = map(FeatUtils.mkbookend, Y_)
 
 # In[ ]:
 
@@ -333,28 +311,75 @@ def init_score(tags, tag=START):
 
 # In[ ]:
 
+def s2df(xs: List[Series]) -> DataFrame:
+    return DataFrame({i: s for i, s in enumerate(xs)})
 
+def debugu(ufunc, gmat, uadd, gf, pt, k):
+    ufunc.gmat = gmat
+    ufunc.uadd = uadd
+    pt('\n', k)
+    pt(gf.xbar[k], )
+    pt(gmat)
+    pt('\nuadd')
+    pt(uadd)
+    
+def get_u(k: int=None, gf: "int -> (Y, Y') -> float"=gf, collect=True, verbose=False) -> '([max score], [max ix])':
+    """Recursively build up g_i matrices bottom up, adding y-1 score
+    to get max y score. Returns score.
+    - k is in terms of y vector, which is augmented with beginning and end tags
+    - also returns indices yprev that maximize y at each level to help reconstruct
+        most likely sequence
+    """
+    pt = testprint(verbose)
+    imx = len(gf.xbar) + 1
+    if k is None:
+        pt(gf.xbar)
+        return get_u(imx, gf=gf, collect=1, verbose=verbose)
+    if k == 0:
+        return [init_score(gf.tags, START)], []
+
+    uprevs, ixprevs = get_u(k - 1, gf=gf, collect=False, verbose=verbose)
+    gmat = getmat(gf(k))
+    if k == imx and 0:
+        gmat = gmat[[END]]
+    uadd = gmat.add(uprevs[-1], axis='index')
+    if k > 0:
+        uadd[START] = -1  # START only possible at beginning
+    if k < imx:
+        uadd[END] = -1  # START only possible at beginning
+    
+    debugu(get_u, gmat, uadd, gf, pt, k)
+    if k == 1:
+        idxmax = Series(START, index=gf.tags)  # uadd.ix[START].idxmax()
+    else:
+        idxmax = uadd.idxmax()
+    pt('idxmax:', idxmax, sep='\n')
+    retu, reti = uprevs + [uadd.max()], ixprevs + [idxmax]
+    if not collect:
+        return retu, reti
+    return s2df(retu), s2df(reti)
+
+
+# INIT = object()
+def mlp(idxs, i: int=None, tagsrev: List[Y]=[END]) -> List[Y]:
+    if i is None:
+        return mlp(idxs, i=int(idxs.columns[-1]), tagsrev=tagsrev)
+    elif i < 0:
+        return tagsrev[::-1]
+    tag = tagsrev[-1]
+    yprev = idxs.loc[tag, i]
+    # u.iloc[:, -1][tag]
+    
+    return mlp(idxs, i=i - 1, tagsrev=tagsrev + [yprev])
+
+# u2, i2 = get_u(gf=test_getu2.gf2, collect=True, verbose=1)
+# i2
+# u, k = get_u(4, collect=1)
 
 
 # In[ ]:
 
-fs = test_getu.fs
-f = fs['pre_end']
-
-
-# In[ ]:
-
-f(0, END, EasyList(['wd1', 'pre-end']), 3)
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-def test_getu():
+def test_getu1():
     tgs = [START, 'TAG1', END]
     fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1')}
     ytpred = [START, 'TAG1', END]
@@ -365,88 +390,125 @@ def test_getu():
     assert (u.idxmax() == ytpred).all()
     assert u.iloc[:, -1].max() == 2
     
-    fs['pre_end'] = lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)
-    ws = mkwts1(fs)
-    ws['pre_end'] = 3
+def test_getu2():
+    tgs = [START, 'TAG1', END]
     x2 = EasyList(['wd1', 'pre-end'])
+    fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1'),
+          'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)}
+    ws = z.merge(mkwts1(fs), {'pre_endx': 3})
     gf2 = mkgf(ws, fs, tgs, x2)
     assert all(getmat(gf2(3))[END] == 3)
-    test_getu.gf2 = gf2
-    test_getu.fs = fs
-    u2, i2 = get_u(gf=gf2, collect=True)
-    assert (u2.idxmax() == [START, 'TAG1', END, END]).all()
-    # 3rd value for predicted sequence is END, but only because it is first in index order
-    assert u2[2].nunique() == 1, '3rd predicted tag should have same score for all v`s'
+    test_getu2.gf2 = gf2
+    test_getu2.fs = fs
+    u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
+    print(u2)
+    assert (u2.idxmax() == [START, 'TAG1', 'TAG1', END]).all()
     assert u2.iloc[:, -1].max() == 5
-    return u2
+    assert mlp(i2) == ['START', 'TAG1', 'TAG1', 'END']
+    return u2, i2
     
-u = test_getu()
-g = test_getu.gf2
-fs = test_getu.fs
+test_getu1()
+u, i = test_getu2()
+
+
+# In[ ]:
+
+def test_getu3():
+    tgs = [START, 'TAG1', 'PENULTAG', END]
+    fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1'),
+#           'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END),
+          'pre_endy': lambda yp, y, x, i: (yp == 'PENULTAG') and (y == END),
+          'start_nonzero': lambda yp, y, x, i: (y == START) and (i != 0),
+          'start_zero': lambda yp, y, x, i: (y == START) and (i == 0),
+          'end_nonend': lambda yp, y, x, i: (y == END) and (i != (len(x) + 1)),
+          'end_end': lambda yp, y, x, i: (y == END) and (i == (len(x) + 1)),
+         }
+    ws = z.merge(mkwts1(fs), {'pre_endy': 3, 'start_nonzero': -1, 'end_nonend': -1})
+    x2 = EasyList(['wd1', 'pre-end', 'whatevs'])
+    gf2 = mkgf(ws, fs, tgs, x2)
+#     print(getmat(gf2(3)))
+    # assert all(getmat(gf2(3))[END] == 3)
+    test_getu3.gf2 = gf2
+    test_getu3.fs = fs
+    u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
+#     assert (u2.idxmax() == [START, 'TAG1', END, END]).all()
+#     # 3rd value for predicted sequence is END, but only because it is first in index order
+#     assert u2[2].nunique() == 1, '3rd predicted tag should have same score for all v`s'
+#     assert u2.iloc[:, -1].max() == 5
+    assert mlp(i2) == ['START', 'TAG1', 'PENULTAG', 'PENULTAG', 'END']
+    return u2, i2
+
+u, i = test_getu3()
+g = test_getu3.gf2
+fs = test_getu3.fs
+f = fs['start_nonzero']
+# i
+x2 = EasyList(['wd1', 'pre-end', 'whatevs'])
 u
 
 
 # In[ ]:
 
-def s2df(xs: List[Series]) -> DataFrame:
-    return DataFrame({i: s for i, s in enumerate(xs)})
+def side_by_side(da, db):
+    d = da.copy()
+    d2 = DataFrame(db.copy())
+    d.columns = pd.MultiIndex.from_product([['A'], list(d)])
+    d2.columns = pd.MultiIndex.from_product([['B'], list(d2)])
+    d[d2.columns] = d2
+    return d
 
-def get_u(k: int=None, gf: "int -> (Y, Y') -> float"=gf, collect=True) -> '([max score], [max ix])':
-    """Recursively build up g_i matrices bottom up, adding y-1 score
-    to get max y score. Returns score.
-    - k is in terms of y vector, which is augmented with beginning and end tags
-    """
-    pt = testprint(0)
-    imx = len(gf.xbar) + 1
-    if k is None:
-        pt(gf.xbar)
-        return get_u(imx, gf=gf, collect=1)
+def side_by_side(*ds):
+    dmultis = [side_by_side1(d, ctr=i) for i, d in enumerate(ds)]
+    return pd.concat(dmultis, axis=1)
 
-    if k == 0:
-        return [init_score(gf.tags, START)], [START]
+def side_by_side1(d, ctr=1):
+    d = DataFrame(d.copy())
+    d.columns = pd.MultiIndex.from_product([[ctr], list(d)])
+    return d
+    
 
-    uprevs, ixprevs = get_u(k - 1, gf=gf, collect=False)
-
-#         return 
-#         return uprevs + [init_score(gf.tags, END)], ixprevs + initi
-
-    gmat = getmat(gf(k))
-    if k == imx and 0:
-        gmat = gmat[[END]]
-    uadd = gmat.add(uprevs[-1], axis='index')
-    get_u.gmat = gmat
-    get_u.uadd = uadd
-    pt('\n', k)
-    pt(gf.xbar[k], )
-    pt(gmat)
-    pt('\nuadd')
-    pt(uadd)
-
-    if k == 1:
-        idxmax = uadd.ix[START].idxmax()
-    elif k == imx:
-        idxmax = END
-    else:
-        idxmax = uadd.idxmax()
-    pt('idxmax:', idxmax)
-    retu, reti = uprevs + [uadd.max()], ixprevs + [idxmax]
-    if not collect:
-        return retu, reti
-    return s2df(retu), reti  # s2df(reti)
-
-# u2, i2 = get_u(gf=gft2, collect=True)
-# u2
-# u, k = get_u(4, collect=1)
+def side_by_side_(*objs, **kwds):
+    from pandas.core.common import adjoin
+    space = kwds.get('space', 4)
+    reprs = [repr(obj).split('\n') for obj in objs]
+    print(adjoin(space, *reprs))
+def ff(m):
+    return side_by_side(m, m.idxmax(), m.max())
 
 
 # In[ ]:
 
-u2.idxmax()
+# Only need to keep max and idxmax at each level
+# y0 at level1 does not affect y2 at level 2 (but y1 will!)
 
 
 # In[ ]:
 
-i2
+u2 = getmat(g(2))
+u2 = u2.add(u1.T, axis='index')
+u2i, u2m = u2.idxmax(), u2.max()
+side_bu_side(u2, u2i, u2m)
+
+
+# In[ ]:
+
+u3 = getmat(g(3))
+ff(u3)
+
+
+# In[ ]:
+
+u3.add(u2m, axis='index')
+
+
+# In[ ]:
+
+u2.add(u1.T, axis='index')
+
+
+# In[ ]:
+
+s2df(i)
 
 
 # # Import2
@@ -459,86 +521,61 @@ fs = AttrDict(fs)
 fsums = AttrDict(fsums)
 
 
-# In[ ]:
-
-xt2
-
-
-# In[ ]:
-
-def post_mr(yp, y, x, i):  # optional keywords to not confuse mypy
-    return (y == yp == 'NNP') & (x[i - 1] == 'Mr.')
-
-last_nn = lambda yp_, y, x, i: (i == len(x) - 1) and (y == 'NN')
-last_nn = lambda yp, y, x, i: (yp == 'NNP') and (y == END)
-
-F = mk_sum(post_mr)
-# F(['wd0', 'Mr.', 'pre-end'], ['TAG3', 'NNP', 'NNP'])
-F = mk_sum(last_nn)
-F(['to', '1.23', 'the'], ['TO', 'CD', 'NN'])
-
-
-# In[ ]:
-
-yt2
-
-
-# In[ ]:
-
-for i in range(1, len(yt2)):
-    print(i, end=' ')
-    print(yt2[i])
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-def test_likely_path():
-    testfs_str = 'wd_to wd_of wd_for wd_in wd_a wd_the wd_and'.split()
-    testfs = z.keyfilter(lambda x: x in testfs_str, fs)
-    wst = mkwts1(testfs)
-    stags = 'Junk1 Junk2 TO IN DT CC Junk3 Junk4'.split()
-    
-    xt = 'of for in the and a to'.split()
-    gft = mkgf(wst, testfs, stags, xt)
-    # gft = mkgf(wst, testfs, stags, xt)
-    u, i = get_u(gf=gft, collect=True)
-    
-    shouldbe_dims = len(stags), len(xt)
-    assert u.shape == shouldbe_dims, ('Shape of score matrix is wrong. '
-                                      'Actual: {}, Expected: {}'.format(u.shape, shouldbe_dims))
-    assert most_likely_path(u, i) == [None, 'IN', 'IN', 'IN', 'DT', 'CC', 'DT', 'TO']
-    
-test_likely_path()
-
-
+#     def post_mr(yp, y, x, i):  # optional keywords to not confuse mypy
+#         return (y == yp == 'NNP') & (x[i - 1] == 'Mr.')
+# 
+#     last_nn = lambda yp_, y, x, i: (i == len(x) - 1) and (y == 'NN')
+#     last_nn = lambda yp, y, x, i: (yp == 'NNP') and (y == END)
+# 
+#     F = mk_sum(post_mr)
+#     # F(['wd0', 'Mr.', 'pre-end'], ['TAG3', 'NNP', 'NNP'])
+#     F = mk_sum(last_nn)
+#     F(['to', '1.23', 'the'], ['TO', 'CD', 'NN'])
+#     xt2
+#     yt2
+# 
+#     def test_likely_path():
+#         testfs_str = 'wd_to wd_of wd_for wd_in wd_a wd_the wd_and'.split()
+#         testfs = z.keyfilter(lambda x: x in testfs_str, fs)
+#         wst = mkwts1(testfs)
+#         stags = 'Junk1 Junk2 TO IN DT CC Junk3 Junk4'.split()
+# 
+#         xt = 'of for in the and a to'.split()
+#         gft = mkgf(wst, testfs, stags, xt)
+#         # gft = mkgf(wst, testfs, stags, xt)
+#         u, i = get_u(gf=gft, collect=True)
+# 
+#         shouldbe_dims = len(stags), len(xt)
+#         assert u.shape == shouldbe_dims, ('Shape of score matrix is wrong. '
+#                                           'Actual: {}, Expected: {}'.format(u.shape, shouldbe_dims))
+#         assert most_likely_path(u, i) == [None, 'IN', 'IN', 'IN', 'DT', 'CC', 'DT', 'TO']
+# 
+#     test_likely_path()
+# 
+#     for i in range(1, len(yt2)):
+#         print(i, end=' ')
+#         print(yt2[i])
+# 
 #     xt = 'Hi this has Two capped words'.split()
 #     resmat = getmat(gft(0))
 #     gft = mkgf()
-
-# In[ ]:
-
-def most_likely_path(u: 'DataFrame[float]', i: 'DataFrame[Y]') -> (List[str], List[float]):
-    revpath = []
-    revscore = []
-
-    for c in reversed(u.columns[:]):
-#         print(c)
-        ix = u[c].idxmax()
-        revscore.append(u[c][ix])
-        revpath.append(ix)
-        prevmax = i[c][ix]
-#         print('ix:', ix)
-#         print('prevmax:', prevmax)
-        if c:
-            assert u[c-1].max() == u[c-1][prevmax]
-    #     break
-    return revpath[::-1], revscore[::-1]
-
+# 
+#     def most_likely_path(u: 'DataFrame[float]', i: 'DataFrame[Y]') -> (List[str], List[float]):
+#         revpath = []
+#         revscore = []
+# 
+#         for c in reversed(u.columns[:]):
+#     #         print(c)
+#             ix = u[c].idxmax()
+#             revscore.append(u[c][ix])
+#             revpath.append(ix)
+#             prevmax = i[c][ix]
+#     #         print('ix:', ix)
+#     #         print('prevmax:', prevmax)
+#             if c:
+#                 assert u[c-1].max() == u[c-1][prevmax]
+#         #     break
+#         return revpath[::-1], revscore[::-1]
 
 # In[ ]:
 
