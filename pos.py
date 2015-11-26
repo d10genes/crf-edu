@@ -23,7 +23,8 @@ get_ipython().run_cell_magic('javascript', '', "IPython.keyboard_manager.command
 
 from collections import defaultdict, Counter
 import inspect
-from typing import List
+from typing import List, Dict
+Df = Dict
 Y = str
 
 if sys.version_info.major > 2:
@@ -39,78 +40,6 @@ if sys.version_info.major > 2:
 # from operator import itemgetter as itg
 # import toolz.curried as z
 # from collections import OrderedDict
-
-# # Viterbi
-# From [here](http://homepages.ulb.ac.be/~dgonze/TEACHING/viterbi.pdf)
-# 
-# s = StringIO()
-# states2.to_csv(s)
-# s.seek(0)
-# sc = s.read()
-
-#     from io import StringIO
-#     csvstr = ''',H,L
-#     A,0.2,0.3
-#     C,0.3,0.2
-#     G,0.3,0.2
-#     T,0.2,0.3'''
-#     states = pd.read_csv(StringIO(csvstr), index_col=0).T
-# 
-#     sts = list(states.index)
-#     start = [.5, .5]
-#     transition = DataFrame([[.5, .5], [.4, .6]], columns=Series(sts, name='To'), index=Series(sts, name='From'))
-# 
-
-# In[ ]:
-
-start = [.5, .5]
-state_names = ['H', 'L']
-obs_names = list('ACGT')
-transition = DataFrame([[.5, .5], [.4, .6]],
-                       columns=Series(state_names, name='To'),
-                       index=Series(state_names, name='From'))
-states = DataFrame(
-    [[0.2, 0.3, 0.3, 0.2],
-     [0.3, 0.2, 0.2, 0.3]], index=state_names, columns=obs_names)
-
-log = np.log2
-startL, transitionL, statesL = map(log, [start, transition, states])
-
-
-# In[ ]:
-
-def build_table(s, startL, statesL, transitionL, convert_log=False):
-    """
-    s: observed sequence
-    startL: initial state probabilities
-    statesL: p(obs_j | hidden state_i)
-    transitionL: p(transition to state_j|state_i)
-    
-    """
-    if convert_log:
-        startL, statesL, transitionL = map(np.log, [startL, statesL, transitionL])
-    prev_path = DataFrame()
-    probs = DataFrame({0: startL + statesL[s[0]]})
-
-    for i, l in enumerate(s[1:], 1):
-        tocur = transitionL.add(probs[i-1], axis='index')  # p(current_state | each possible prev. state)
-        prev_path[i-1] = tocur.idxmax()
-        probs[i] = tocur.max() + statesL[l]  # p(current_state | most likely prev. state) * p(z|current_state)
-    return probs, prev_path
-
-def most_likely_path(probs, prev_path):
-    final_likely_state = probs.iloc[:, -1].idxmax()
-    backwards_path = [final_likely_state]
-
-    for c in reversed(list(prev_path)):
-        backwards_path.append(prev_path[c].ix[backwards_path[-1]])
-    mlp = backwards_path[::-1]
-    return mlp
-
-probs, prev_path = build_table('GGCACTGAA', startL, statesL, transitionL)
-mlp = most_likely_path(probs, prev_path)
-mlp
-
 
 # ## Load data
 
@@ -147,11 +76,6 @@ bigd = DataFrame(bigs).fillna(0)[tags].ix[tags]
 # sns.clustermap(bigd, annot=1, figsize=(16, 20), fmt='.0f')
 
 
-#     Series(Counter(y[0] for y in Y)).order(ascending=0)[:5]
-#     Series(Counter(y[:2][-1] for y in Y)).order(ascending=0)[:4]
-# 
-#     Series(Counter(y[-2:][0] for y in Y)).order(ascending=0)[:4]
-
 # In[ ]:
 
 wcts_all = defaultdict(Counter)
@@ -164,22 +88,6 @@ for xi, yi in zip(X, Y_):
 
 wcts = z.valfilter(lambda x: sum(x.values()) > 4, wcts_all)
 
-
-#     stops = 'the of to a and in for that'.split()
-#     stops = Series(stops)
-#     z.reduceby()
-#     def get_max(d):
-#         k, v = max(d.items(), key=snd)
-#         return k, v / sum(d.values())
-# 
-#     get_max({'IN': 17, 'DT': 9202})
-#     s = stops.map(z.comp(get_max, wcts.get)).reset_index(drop=0).set_index(stops)[0].order(ascending=0).drop('that', axis=0)
-#     s
-#     s.index
-
-#     cts = Series(z.valmap(lambda x: sum(x.values()), wcts))
-#     cts.value_counts(normalize=1)
-#     cts.order(ascending=0)
 
 # In[ ]:
 
@@ -204,15 +112,7 @@ wcts = z.valfilter(lambda x: sum(x.values()) > 4, wcts_all)
 # \sum_{i=1}^n f_j(y_{i-1}, y_i, \bar x, i)
 # $$
 
-# In[ ]:
-
-class AttrDict(dict):
-    def __init__(self, *args, **kwargs):
-        super(AttrDict, self).__init__(*args, **kwargs)
-        self.__dict__ = self
-
-
-# # Imports
+# # Utils Imports
 
 # In[ ]:
 
@@ -228,6 +128,7 @@ def eq(x):
     return lambda y: x == y
 
 def sch(term, x=False):
+    "Search in X or Y for term, return matching input and output"
     f = eq(term) if isinstance(term, (str, unicode)) else term
     ss = X if x else Y
     for i, s in enumerate(ss):
@@ -237,55 +138,28 @@ def sch(term, x=False):
 
 # Yb = map(FeatUtils.mkbookend, Y_)
 
-# In[ ]:
-
-x0 = X[0]
-y0 = Y_[0]
-
+#     x0 = X[0]
+#     y0 = Y_[0]
 
 # ### Argmax
-# $\newcommand{\argmin}{\operatornamewithlimits{argmin}}$
-# Get $\text{argmax}_{\bar y} p(\bar y | \bar x;w) $
 # 
-# 
-
-# In[ ]:
-
-# ws = np.ones_like(fs.values())
-ws = z.valmap(const(1), fs)
-
+# Get $\text{argmax}_{\bar y} p(\bar y | \bar x;w)$. Since the scoring function only depends on 2 (consecutive in this situation) elements of $\bar y$, argmax can be computed in polynomial time with a table ($\in ℝ^{|Y| \times |y|}$). $U_{ij}$ is the highest score for sequences ending in $y_i$ at position $y_j$.
 
 # $$
 # g_i(y_ {i-1}, y_i) = \sum^J_{j=1} w_j f_j (y_ {i-1}, y_i, \bar x, i)
 # $$
 
-# In[ ]:
-
-Df = Dict
-
-
-# In[ ]:
-
-# def gf(ws, yp, y, xbar, i):
-#     return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
-
-xx = ['Mr.', 'Doo', 'in', 'a', 'circus']
-yy = ['NNP', 'NNP', 'IN', 'DT', 'IN']
-gf = mkgf(ws, fs, tags, xx)
-# gf = mkgf(ws, fs, tags, ['Mr.', 'Happy', 'derp'])
-
-
-#     test_mats()
-#     gft = test_mats_2_args()
-#     gf0 = gft(0)
-#     gf1 = gft(1)
+#     # def gf(ws, yp, y, xbar, i):
+#     #     return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
 # 
-#     m0 = getmat(gft(0))
-#     m1 = getmat(gft(1))
+#     x_ = ['Mr.', 'Doo', 'in', 'a', 'circus']
+#     y_ = ['NNP', 'NNP', 'IN', 'DT', 'IN']
 # 
-#     gf1 = gf(1)
-#     gf0 = gf(0)
-#     gf1
+#     mkwts1 = lambda fs: z.valmap(const(1), fs)
+#     ws = mkwts1(fs)
+# 
+#     gf = mkgf(ws, fs, tags, x_)
+#     # gf = mkgf(ws, fs, tags, ['Mr.', 'Happy', 'derp'])
 
 # ### Generate maximum score matrix U
 
@@ -296,9 +170,10 @@ def init_u(m0):
     ymax = mu.idxmax()
     return ymax, mu[ymax]
 
-def init_score(tags, tag=START):
+
+def init_score(tags, tag=START, sort=True):
     "Base case for recurrent score calculation U"
-    i = Series(0, index=tags)
+    i = Series(0, index=sorted(tags) if sort else tags)
     i.loc[tag] = 1
     return i
 
@@ -323,7 +198,7 @@ def debugu(ufunc, gmat, uadd, gf, pt, k):
     pt('\nuadd')
     pt(uadd)
     
-def get_u(k: int=None, gf: "int -> (Y, Y') -> float"=gf, collect=True, verbose=False) -> '([max score], [max ix])':
+def get_u(k: int=None, gf: "int -> (Y, Y') -> float"=None, collect=True, verbose=False) -> '([max score], [max ix])':
     """Recursively build up g_i matrices bottom up, adding y-1 score
     to get max y score. Returns score.
     - k is in terms of y vector, which is augmented with beginning and end tags
@@ -340,15 +215,15 @@ def get_u(k: int=None, gf: "int -> (Y, Y') -> float"=gf, collect=True, verbose=F
 
     uprevs, ixprevs = get_u(k - 1, gf=gf, collect=False, verbose=verbose)
     gmat = getmat(gf(k))
-    if k == imx and 0:
-        gmat = gmat[[END]]
     uadd = gmat.add(uprevs[-1], axis='index')
-    if k > 0:
-        uadd[START] = -1  # START only possible at beginning
-    if k < imx:
-        uadd[END] = -1  # START only possible at beginning
     
-    debugu(get_u, gmat, uadd, gf, pt, k)
+    if k > 0:
+        # START tag only possible at beginning.
+        # There should be a better way of imposing these constraints
+        uadd[START] = -1
+    if k < imx:
+        uadd[END] = -1  # END only possible at the...end
+    
     if k == 1:
         idxmax = Series(START, index=gf.tags)  # uadd.ix[START].idxmax()
     else:
@@ -360,16 +235,14 @@ def get_u(k: int=None, gf: "int -> (Y, Y') -> float"=gf, collect=True, verbose=F
     return s2df(retu), s2df(reti)
 
 
-# INIT = object()
 def mlp(idxs, i: int=None, tagsrev: List[Y]=[END]) -> List[Y]:
+    "Most likely sequence"
     if i is None:
         return mlp(idxs, i=int(idxs.columns[-1]), tagsrev=tagsrev)
     elif i < 0:
         return tagsrev[::-1]
     tag = tagsrev[-1]
     yprev = idxs.loc[tag, i]
-    # u.iloc[:, -1][tag]
-    
     return mlp(idxs, i=i - 1, tagsrev=tagsrev + [yprev])
 
 # u2, i2 = get_u(gf=test_getu2.gf2, collect=True, verbose=1)
@@ -379,7 +252,7 @@ def mlp(idxs, i: int=None, tagsrev: List[Y]=[END]) -> List[Y]:
 
 # In[ ]:
 
-def test_getu1():
+def test_getu1(get_u):
     tgs = [START, 'TAG1', END]
     fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1')}
     ytpred = [START, 'TAG1', END]
@@ -390,7 +263,7 @@ def test_getu1():
     assert (u.idxmax() == ytpred).all()
     assert u.iloc[:, -1].max() == 2
     
-def test_getu2():
+def test_getu2(get_u):
     tgs = [START, 'TAG1', END]
     x2 = EasyList(['wd1', 'pre-end'])
     fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1'),
@@ -401,19 +274,13 @@ def test_getu2():
     test_getu2.gf2 = gf2
     test_getu2.fs = fs
     u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
-    print(u2)
+    # print(u2)
     assert (u2.idxmax() == [START, 'TAG1', 'TAG1', END]).all()
     assert u2.iloc[:, -1].max() == 5
     assert mlp(i2) == ['START', 'TAG1', 'TAG1', 'END']
     return u2, i2
     
-test_getu1()
-u, i = test_getu2()
-
-
-# In[ ]:
-
-def test_getu3():
+def test_getu3(get_u):
     tgs = [START, 'TAG1', 'PENULTAG', END]
     fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1'),
 #           'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END),
@@ -426,25 +293,17 @@ def test_getu3():
     ws = z.merge(mkwts1(fs), {'pre_endy': 3, 'start_nonzero': -1, 'end_nonend': -1})
     x2 = EasyList(['wd1', 'pre-end', 'whatevs'])
     gf2 = mkgf(ws, fs, tgs, x2)
-#     print(getmat(gf2(3)))
-    # assert all(getmat(gf2(3))[END] == 3)
     test_getu3.gf2 = gf2
     test_getu3.fs = fs
     u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
-#     assert (u2.idxmax() == [START, 'TAG1', END, END]).all()
-#     # 3rd value for predicted sequence is END, but only because it is first in index order
-#     assert u2[2].nunique() == 1, '3rd predicted tag should have same score for all v`s'
-#     assert u2.iloc[:, -1].max() == 5
     assert mlp(i2) == ['START', 'TAG1', 'PENULTAG', 'PENULTAG', 'END']
     return u2, i2
 
-u, i = test_getu3()
-g = test_getu3.gf2
-fs = test_getu3.fs
-f = fs['start_nonzero']
-# i
-x2 = EasyList(['wd1', 'pre-end', 'whatevs'])
-u
+test_getu1(get_u)
+test_getu2(get_u)
+test_getu3(get_u)
+None
+# u, i = test_getu2()
 
 
 # In[ ]:
@@ -466,174 +325,126 @@ def side_by_side1(d, ctr=1):
     d.columns = pd.MultiIndex.from_product([[ctr], list(d)])
     return d
     
-
 def side_by_side_(*objs, **kwds):
     from pandas.core.common import adjoin
     space = kwds.get('space', 4)
     reprs = [repr(obj).split('\n') for obj in objs]
     print(adjoin(space, *reprs))
+    
 def ff(m):
     return side_by_side(m, m.idxmax(), m.max())
 
 
 # In[ ]:
 
-# Only need to keep max and idxmax at each level
-# y0 at level1 does not affect y2 at level 2 (but y1 will!)
-
-
-# In[ ]:
-
-u2 = getmat(g(2))
-u2 = u2.add(u1.T, axis='index')
-u2i, u2m = u2.idxmax(), u2.max()
-side_bu_side(u2, u2i, u2m)
-
-
-# In[ ]:
-
-u3 = getmat(g(3))
-ff(u3)
-
-
-# In[ ]:
-
-u3.add(u2m, axis='index')
-
-
-# In[ ]:
-
-u2.add(u1.T, axis='index')
-
-
-# In[ ]:
-
-s2df(i)
-
-
-# # Import2
-
-# In[ ]:
-
-import utils; reload(utils); from utils import *
-# from utils import sum1, sum2, post_mr, mk_sum, F
-fs = AttrDict(fs)
-fsums = AttrDict(fsums)
-
-
-#     def post_mr(yp, y, x, i):  # optional keywords to not confuse mypy
-#         return (y == yp == 'NNP') & (x[i - 1] == 'Mr.')
-# 
-#     last_nn = lambda yp_, y, x, i: (i == len(x) - 1) and (y == 'NN')
-#     last_nn = lambda yp, y, x, i: (yp == 'NNP') and (y == END)
-# 
-#     F = mk_sum(post_mr)
-#     # F(['wd0', 'Mr.', 'pre-end'], ['TAG3', 'NNP', 'NNP'])
-#     F = mk_sum(last_nn)
-#     F(['to', '1.23', 'the'], ['TO', 'CD', 'NN'])
-#     xt2
-#     yt2
-# 
-#     def test_likely_path():
-#         testfs_str = 'wd_to wd_of wd_for wd_in wd_a wd_the wd_and'.split()
-#         testfs = z.keyfilter(lambda x: x in testfs_str, fs)
-#         wst = mkwts1(testfs)
-#         stags = 'Junk1 Junk2 TO IN DT CC Junk3 Junk4'.split()
-# 
-#         xt = 'of for in the and a to'.split()
-#         gft = mkgf(wst, testfs, stags, xt)
-#         # gft = mkgf(wst, testfs, stags, xt)
-#         u, i = get_u(gf=gft, collect=True)
-# 
-#         shouldbe_dims = len(stags), len(xt)
-#         assert u.shape == shouldbe_dims, ('Shape of score matrix is wrong. '
-#                                           'Actual: {}, Expected: {}'.format(u.shape, shouldbe_dims))
-#         assert most_likely_path(u, i) == [None, 'IN', 'IN', 'IN', 'DT', 'CC', 'DT', 'TO']
-# 
-#     test_likely_path()
-# 
-#     for i in range(1, len(yt2)):
-#         print(i, end=' ')
-#         print(yt2[i])
-# 
-#     xt = 'Hi this has Two capped words'.split()
-#     resmat = getmat(gft(0))
-#     gft = mkgf()
-# 
-#     def most_likely_path(u: 'DataFrame[float]', i: 'DataFrame[Y]') -> (List[str], List[float]):
-#         revpath = []
-#         revscore = []
-# 
-#         for c in reversed(u.columns[:]):
-#     #         print(c)
-#             ix = u[c].idxmax()
-#             revscore.append(u[c][ix])
-#             revpath.append(ix)
-#             prevmax = i[c][ix]
-#     #         print('ix:', ix)
-#     #         print('prevmax:', prevmax)
-#             if c:
-#                 assert u[c-1].max() == u[c-1][prevmax]
-#         #     break
-#         return revpath[::-1], revscore[::-1]
-
-# In[ ]:
-
-# path, score = most_likely_path(uu, ii)
-path, score = most_likely_path(u, i)
-
-
-# In[ ]:
-
-path
-
-
-# In[ ]:
-
-def predict(xbar, ws, fs, tags):
+def predict(xbar=None, fs=None, tags=None, ws=None):
+    "Return argmax_y with corresponding score"
+    ws = ws or mkwts1(fs)
     gf = mkgf(ws, fs, tags, xbar)
-    u, i = get_u(len(xbar) - 1, gf=gf, collect=True)
-#     return u, i
-#     print(u)
-    path, score = most_likely_path(u, i)
-    return path, score
+    u, i = get_u(gf=gf, collect=True, verbose=0)
+    path = mlp(i)
+    return path, u.ix[END].iloc[-1]
     
-path2, score2 = predict(['Mr.', 'Doo', 'is', 'in', 'a', 'circus'], ws, fs, tags)
-
-
-# In[ ]:
-
-predict(['Mr.', 'Doo', 'in', 'a', 'circus'], ws, fs, tags)
+path2, score2 = predict(xbar=EasyList(['wd1', 'pre-end', 'whatevs']),
+                        fs=test_getu3.fs,
+                        tags=[START, 'TAG1', 'PENULTAG', END])
 
 
 # ##Gradient
-# $$\frac{\partial}{\partial w_j} \log p(y | x;w) = F_j (x, y) - E_{y' \sim  p(y | x;w) } [F_j(x,y')]$$
-# 
-# $$\alpha (0,y) = I(y=start)$$
+# $$\frac{\partial}{\partial w_j} \log p(y | x;w) = F_j (x, y) - \frac1 {Z(x, w)} \sum_{y'} F_j (x, y') [\exp \sum_{j'} w_{j'} F_{j'} (x, y')]$$
+# $$= F_j (x, y) - E_{y' \sim  p(y | x;w) } [F_j(x,y')]$$
+
+# ## Forward-backward algorithm
+# - Useful for finding partition function $Z(\bar x, w) = \sum_{\bar y} \exp \sum _{j=1} ^ J w_j F_j (\bar x, \bar y) $ 
+#    
 # $$\alpha (k + 1,v) = \sum_u \alpha (k,u)[\exp g_{k+1}(u,v)] \in ℝ^m$$
-
-# In[ ]:
-
-ts = Series(tags)
-y = yy
-y
-
-
-# In[ ]:
-
-V = ts
-v0 = v[0]
-v0
-
+# $$\alpha (0,y) = I(y=START)$$
+# 
+# $$\beta (u, k) = \sum_v [\exp g_{k+1} (u, v)] \beta(v, k+1) $$
+# $$\beta (u, n+1) = I(u= END) $$
 
 # In[ ]:
 
 k = 0
-# vi = 
-y0 = y[0]
-a0 = Series(list(y0 == ts), index=ts)
-# a0.reset_index(drop=0)[:15].T.ix[[0]]
-a0
+tgs = [START, 'TAG1', END]
+x = EasyList(['wd1', 'pre-end'])
+fs = {
+#     'eq_wd1': mk_word_tag('wd1', 'TAG1'),
+    'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)
+     }
+ws = z.merge(mkwts1(fs), {'pre_endx': 1})
+# f = fs['eq_wd1']
+gf = mkgf(ws, fs, tgs, x)
+
+
+# In[ ]:
+
+def get_a(gf):
+    exp_score = z.compose(np.array, np.exp, getmat, gf)
+    def a(i):
+        if i == 0:
+            return init_score(gf.tags, tag=START).values
+        return a(i- 1) @ exp_score(i)
+    get_a.a = a
+    return a(len(gf.xbar) + 1)
+
+def get_b(gf):
+    exp_score = z.compose(np.array, np.exp, getmat, gf)
+    imx = len(gf.xbar) + 1
+    def b(i):
+        if i == imx:
+            return init_score(gf.tags, tag=END).values
+        return exp_score(i).T @ b(i + 1)
+#         return b(i + 1) @ exp_score(i).T
+    get_b.b = b
+    return b(0)
+
+get_a(gf)
+get_b(gf)
+
+
+# In[ ]:
+
+for k in range(4):
+    # k = 3
+    print(get_a.a(k) @ get_b.b(k))
+
+
+# In[ ]:
+
+get_a(gf), get_b(gf)
+
+
+# In[ ]:
+
+get_a(gf).sum()
+
+
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+get_b.b(k)
+
+
+# In[ ]:
+
+get_a.a(k)
+
+
+# In[ ]:
+
+get_b(gf).sum()
+
+
+# In[ ]:
+
+a1 = 
+gf
 
 
 # In[ ]:
@@ -645,6 +456,55 @@ g1 = gfa(1)
 # In[ ]:
 
 del forwarder
+
+
+# In[ ]:
+
+yt = 
+
+
+# In[ ]:
+
+fs
+
+
+# In[ ]:
+
+xt = EasyList(['wd1', 'wd2'])
+xt
+
+
+# In[ ]:
+
+def mkforward(i=0, aprevs=None):
+    if not i:
+        return mkforward(i=i + 1, aprevs=[mka(y[i] == V)])
+    if i >= len(y):
+        return aprevs
+    aprev = aprevs[-1]
+    gk = mkg(i)
+    ai = mka([sum(aprev[u] * np.e ** gk(u, v) for u in V) for v in V])
+    return mkforward(i=i + 1, aprevs=aprevs + [ai])
+
+
+# In[ ]:
+
+def alpha(x, y, V, ws, fs) -> List[Series]:
+    """Unnormalized probability of set of possible sequences that end at position
+    `col` with tag `row`
+    """
+    mka = lambda x: Series(list(x), index=V)
+    mkg = mkgf(ws, fs, V, x)
+    def mkforward(i=0, aprevs=None):
+        if not i:
+            return mkforward(i=i + 1, aprevs=[mka(y[i] == V)])
+        if i >= len(y):
+            return aprevs
+        aprev = aprevs[-1]
+        gk = mkg(i)
+        ai = mka([sum(aprev[u] * np.e ** gk(u, v) for u in V) for v in V])
+        return mkforward(i=i + 1, aprevs=aprevs + [ai])
+    return DataFrame(mkforward()).T
 
 
 # In[ ]:

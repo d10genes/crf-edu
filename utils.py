@@ -250,8 +250,23 @@ def test_functions():
     assert f.fst_dt(['to', '1.23', 'the'], ['DT2', 'CD', 'NN']) == 0
     assert f.fst_nnp(['to', '1.23', 'ddd'], ['NNP', 'CD', 'DDD']) == 1
 
-# test_functions()
+
+class AttrDict(dict):
+    "http://stackoverflow.com/a/14620633/386279"
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__dict__ = self
 
 
 if __name__ == '__main__':
     test_functions()
+
+
+# $$M_t (u, v) = \exp g_t(u, v) \in ℝ^m$$
+# where $M_1$ only defined for $u=START$,
+# where $M_{n+1}$ only defined for $v=END$
+#     $$M_{12} = M_1 M_2$$ (matrix multiplication)
+# i.e.,
+#     $$M_{12}(START, w) = \sum_v M_1(START, v)M_2(v,w)$$
+#     $$= \sum_{y_1} \exp \left[g_1(START, y_1) +  g_2(y_1, w) \right]$$
+#     $$M_{123}(START, w) = \sum_{y_2} M_{12}(START, {y_2})M_3({y_2},w)$$
