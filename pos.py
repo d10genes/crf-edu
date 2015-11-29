@@ -31,6 +31,26 @@ if sys.version_info.major > 2:
     unicode = str
 
 
+# In[ ]:
+
+Series.__matmul__ = Series.dot
+DataFrame.__matmul__ = DataFrame.dot
+
+
+# In[ ]:
+
+def test_matmul():
+    s1, s2 = Series([1, 2, 3]), Series([1, 2, 3])
+    assert (s1 @ s2) == 14
+        
+    s = Series([1, 2])
+    d = DataFrame([[1, 1], [2, 2]])
+    assert all(s @ d == [5, 5])
+    assert_frame_equal(d @ d, DataFrame([[3, 3], [6, 6]]))
+    assert all(d @ s == [3, 6])
+test_matmul()
+
+
 # from py3k_imports import *
 # from project_imports3 import *
 # import pandas as pd
@@ -316,13 +336,14 @@ def side_by_side(da, db):
     d[d2.columns] = d2
     return d
 
-def side_by_side(*ds):
-    dmultis = [side_by_side1(d, ctr=i) for i, d in enumerate(ds)]
+def side_by_side(*ds, names=None):
+    nms = iter(names) if names else repeat(None)
+    dmultis = [side_by_side1(d, ctr=i, name=next(nms)) for i, d in enumerate(ds)]
     return pd.concat(dmultis, axis=1)
 
-def side_by_side1(d, ctr=1):
+def side_by_side1(d, ctr=1, name=None):
     d = DataFrame(d.copy())
-    d.columns = pd.MultiIndex.from_product([[ctr], list(d)])
+    d.columns = pd.MultiIndex.from_product([[name or ctr], list(d)])
     return d
     
 def side_by_side_(*objs, **kwds):
@@ -353,15 +374,67 @@ path2, score2 = predict(xbar=EasyList(['wd1', 'pre-end', 'whatevs']),
 # ##Gradient
 # $$\frac{\partial}{\partial w_j} \log p(y | x;w) = F_j (x, y) - \frac1 {Z(x, w)} \sum_{y'} F_j (x, y') [\exp \sum_{j'} w_{j'} F_{j'} (x, y')]$$
 # $$= F_j (x, y) - E_{y' \sim  p(y | x;w) } [F_j(x,y')]$$
+# 
 
 # ## Forward-backward algorithm
-# - Useful for finding partition function $Z(\bar x, w) = \sum_{\bar y} \exp \sum _{j=1} ^ J w_j F_j (\bar x, \bar y) $ 
+# - Partition function $Z(\bar x, w) = \sum_{\bar y} \exp \sum _{j=1} ^ J w_j F_j (\bar x, \bar y) $ can be intractible; forward-backward vectors can make it easier to compute
 #    
 # $$\alpha (k + 1,v) = \sum_u \alpha (k,u)[\exp g_{k+1}(u,v)] \in ℝ^m$$
 # $$\alpha (0,y) = I(y=START)$$
 # 
 # $$\beta (u, k) = \sum_v [\exp g_{k+1} (u, v)] \beta(v, k+1) $$
 # $$\beta (u, n+1) = I(u= END) $$
+# 
+# Compute partition function $Z$ from either forward or backward vectors
+# 
+# $$ Z(\bar x, w) = \beta(START, 0) $$
+# $$ Z(\bar x, w) = \alpha(n+1, END) $$
+# 
+# [There seems to be an error in the notes, which state that $Z(\bar x, w) = \sum_v \alpha(n, v) $. If this is the case, $Z$ calculated with $\alpha$ will never get a contribution from $g_{n+1}$, while $Z$ calculated with $\beta$ will in the $\beta(u, n)$ step.]
+
+# In[ ]:
+
+def get_asum(gf, knext=None, vb=False):
+    n = len(gf.xbar)
+    tags = gf.tags
+    p = testprint(vb)
+    if knext is None:
+        # The first use of the forward vectors is to write
+        return get_asum(gf, knext=n+1, vb=vb)
+    if knext < 0:
+        raise ValueError('k ({}) cannot be negative'.format(k))
+    if knext == 0:
+        return init_score(tags, tag=START)
+    k = knext - 1
+    gnext = getmat(gf(knext))
+    ak = get_asum(gf, k, vb=vb)
+    
+    names = 'exp[g{k1}] g{k1} a_{k}'.format(k1=knext, k=k).split()
+    p(side_by_side(np.exp(gnext), gnext, ak, names=names))
+    return Series([sum([ak[u] * np.exp(gnext.loc[u, v]) for u in tags]) for v in tags], index=tags)
+
+
+def get_bsum(gf, k=None, vb=False):
+    p = testprint(vb)
+    n = len(gf.xbar)
+    tags = gf.tags
+    if k is None:
+        return get_bsum(gf, k=0, vb=vb)
+    if k > n + 1:
+        raise ValueError('{} > length of x {} + 1'.format(k, n))
+    if k == n + 1:
+        return init_score(gf.tags, tag=END)
+    gnext = getmat(gf(k + 1))
+    bnext = get_bsum(gf, k + 1, vb=vb)
+    p(side_by_side(np.exp(gnext), gnext, bnext, names=['exp[g{}]'.format(k+1), 'g{}'.format(k+1), 'b_{}'.format(k+1)]))
+    return Series([sum([np.exp(gnext.loc[u, v]) * bnext[v] for v in tags]) for u in tags], index=tags)
+
+# # get_asum(gf, 3, 1)
+# get_asum(gf, 2)
+# # get_asum(gf, 1)
+# # get_asum(gf, 0, 1)
+# get_asum(gf, vb=1)
+
 
 # In[ ]:
 
@@ -374,40 +447,93 @@ fs = {
      }
 ws = z.merge(mkwts1(fs), {'pre_endx': 1})
 # f = fs['eq_wd1']
-gf = mkgf(ws, fs, tgs, x)
+# gf = mkgf(ws, fs, tgs, x)
+gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
 
 
 # In[ ]:
 
-def get_a(gf):
-    exp_score = z.compose(np.array, np.exp, getmat, gf)
-    def a(i):
-        if i == 0:
-            return init_score(gf.tags, tag=START).values
-        return a(i- 1) @ exp_score(i)
-    get_a.a = a
-    return a(len(gf.xbar) + 1)
 
-def get_b(gf):
-    exp_score = z.compose(np.array, np.exp, getmat, gf)
-    imx = len(gf.xbar) + 1
-    def b(i):
-        if i == imx:
-            return init_score(gf.tags, tag=END).values
-        return exp_score(i).T @ b(i + 1)
-#         return b(i + 1) @ exp_score(i).T
-    get_b.b = b
-    return b(0)
+    
+get_bsum(gf, 3)
+get_bsum(gf, 2)
+# get_bsum(gf, 1)
+# za = 
+
+
+# Check correctness of forward and backward vectors.
+# - $ Z(\bar x, w) = \beta(START, 0) = \alpha(n+1, END) $
+# - For all positions $k=0...n+1$, $\sum_u \alpha(k, u) \beta(u, k) = Z(\bar x, w)$
+
+# In[ ]:
+
+def test_fwd_bkwd():
+    tgs = [START, 'TAG1', END]
+    x = EasyList(['wd1', 'pre-end'])
+    fs = {
+#         'eq_wd1': mk_word_tag('wd1', 'TAG1'),
+        'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)
+         }
+    ws = z.merge(mkwts1(fs), {'pre_endx': 1})
+    gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
+
+    za = get_asum(gf).END
+    zb = get_bsum(gf).START
+    assert za == zb
+    
+    for k in range(len(x) + 2):
+        assert get_asum(gf, k) @ get_bsum(gf, k) == za
+    return za
+    
+test_fwd_bkwd()
+
+
+# In[ ]:
+
+gf(3).mat
+
+
+# In[ ]:
+
+get_asum(gf, 3)
+
+
+# In[ ]:
+
+get_bsum(gf, 3)
+
+
+# In[ ]:
+
+get_asum(gf).sum()
+
+
+# In[ ]:
+
+Series([1, 2, 3]) @ Series([1, 2, 3])
+
+
+# In[ ]:
 
 get_a(gf)
-get_b(gf)
+
+
+# In[ ]:
+
+get_asum(gf, k).dot(get_bsum(gf, k))
 
 
 # In[ ]:
 
 for k in range(4):
     # k = 3
-    print(get_a.a(k) @ get_b.b(k))
+    print(get_asum(gf, k) @ get_bsum(gf, k))
+#     print(get_a.a(k) @ get_b.b(k))
+
+
+# In[ ]:
+
+get_a(gf, 2)
 
 
 # In[ ]:
@@ -438,7 +564,7 @@ get_a.a(k)
 
 # In[ ]:
 
-get_b(gf).sum()
+get_b(gf)
 
 
 # In[ ]:
