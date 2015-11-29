@@ -1,5 +1,5 @@
 from utils import (EasyList, OutOfBounds, justargs, numargs, const, fs, mkgf,
-                   getmat)
+                   getmat, G)
 import toolz.curried as z
 from pandas.util.testing import assert_frame_equal
 
@@ -46,7 +46,7 @@ def test_mats():
 
     testfs = dict(cap_nnp=fs['cap_nnp'])
     gft = mkgf(wst, testfs, stags, xt)
-    resmat = getmat(gft(0))
+    resmat = getmat(gft(0), generic_names=True)
 
     assert all(resmat.NNP == 1)
     assert (resmat.drop('NNP', axis=1) == 0).all().all()
@@ -60,11 +60,14 @@ def test_mats_2_args():
     wst = z.valmap(const(1), fs)
 
     gft = mkgf(wst, testfs, stags, xt)
-    m0 = getmat(gft(0))
-    m1 = getmat(gft(1))
+    gftb = G(fs=testfs, tags=stags, xbar=xt, ws=wst)
+    m0b = gftb(0).mat
+    m0 = getmat(gft(0), generic_names=True)
+    m1 = getmat(gft(1), generic_names=True)
 
     # First position should be the same
     assert all(m0.NNP == 1)
+    assert all(gftb(0).mat.NNP == 1)
     assert (m0.drop('NNP', axis=1) == 0).all().all()
 
     # Second should get additional point from Mr. feature in position

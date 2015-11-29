@@ -5,18 +5,61 @@ import re
 from typing import Callable, List, Dict, TypeVar, Any  # , Tuple
 import toolz.curried as z
 from pandas import DataFrame  # type: ignore
+from collections import namedtuple
 # from collections import OrderedDict
 
 T = TypeVar('T')
 START = 'START'
 END = 'END'
 mkwts1 = lambda dct: {k: 1 for k in dct}
+OutOfBounds = object()
+funcdat = namedtuple('funcdat', 'fs tags xbar ws i')
+funcdat.__new__.__defaults__ = (None,)
+
+
+class EasyList(list):
+    """1-based indexed list that is forgiving with trying to access out of bounds.
+    This way generic functions can be used that try to access arbitrary relative positions."""
+    def __init__(self, lst=[], verbose=False):
+        self.verbose = verbose
+        super().__init__(lst)
+
+    def __getitem__(self, ix):
+        if ix < 0:
+            ix_ = ix
+        elif not ix:
+            ix_ = len(self)
+        else:
+            ix_ = ix - 1
+        try:
+            return super().__getitem__(ix_)
+        except IndexError:
+            if self.verbose:
+                print('{} out of bounds with list of length {}'.format(ix, len(self)))
+            return OutOfBounds
+
+    def __repr__(self):
+        res = super().__repr__()
+        return 'EasyList' + res
+
+    def __setitem__(self, ix, val):
+        raise NotImplementedError
+
+
+class AugmentY(object):
+    def __init__(self, l):
+        self._orig = l._orig if isinstance(l, AugmentY) else l
+        self.aug = [START] + list(l) + [END]  # type: List
+
+    def __repr__(self):
+        return 'Aug' + repr(self._orig)
 
 
 class FuncSums(object):
     def __call__(self, y: str, x: str) -> float:  # #type: Callable[[str, str], float]
         pass
     tags = ['']
+    i = 1
 
 
 def testprint(pred: bool) -> Callable[..., None]:
@@ -60,8 +103,38 @@ def debugger(f):
     return debug
 
 
+class G(funcdat):
+    """For dict of functions, corresponding weights, tags and xbar,
+    this class holds functions for generating g_i matrix, which sums all of the
+    functions times weights for a given i with inputs
+    """
+    def __new__(cls, fs=None, tags=None, xbar: List=None, ws=None):
+        # xbar_ = xbar if isinstance(xbar, EasyList) else EasyList(xbar)
+        # self.data = funcdat(fs=fs, tags=sorted(tags), xbar=xbar_, ws=ws or mkwts1(fs))
+        xbar_ = xbar if isinstance(xbar, EasyList) else EasyList(xbar)
+        self = super().__new__(cls, fs, sorted(tags), xbar_, ws)
+        return self
+
+    def __init__(self, *args, **kwargs):
+        # xbar_ = xbar if isinstance(xbar, EasyList) else EasyList(xbar)
+        # self.data = funcdat(fs=fs, tags=sorted(tags), xbar=xbar_, ws=ws or mkwts1(fs))
+        self.data = funcdat(*args, **kwargs)
+
+    class Gi(funcdat):
+        def __call__(self, yp, y):
+            return sum(f(yp, y, self.xbar, self.i) * self.ws[fn] for fn, f in self.fs.items())
+
+        @property
+        def mat(self):
+            return getmat(self)
+
+    def __call__(self, i):
+        return self.Gi(*self.data._replace(i=i))
+
+
 def mkgf(ws, fs, tags, xbar):
-    # @z.curry
+    tags = sorted(tags)
+
     def gf(i):
         # @debugger
         def gfi(yp, y):
@@ -75,12 +148,18 @@ def mkgf(ws, fs, tags, xbar):
     return gf
 
 
-def getmat(gf: FuncSums) -> Any:
+def getmat(gf: FuncSums, generic_names=False) -> Any:
     "((yp, y) -> float) -> (Df[Yprev x Y] -> float)"
+    tags = gf.tags
+    i = gf.i
     df = DataFrame({ytag: {ytag_prev: gf(ytag_prev, ytag) for ytag_prev in gf.tags}
                     for ytag in gf.tags})  # type: ignore
-    df.columns.name, df.index.name = 'Y', 'Yprev'
-    return df
+    if generic_names:
+        df.columns.name, df.index.name = 'Y', 'Yprev'
+    else:
+        df.columns.name, df.index.name = 'y{}'.format(i), 'y{}'.format(i - 1)
+
+    return df[tags].ix[tags]
 
 
 class FeatUtils(type):
@@ -143,47 +222,6 @@ def mk_word_tag(wd, tag):
     f.__name__ = '{}_eq_{}'.format(wd, tag)
     f.__doc__ = '(x[i] == {}) and (y == {})'.format(wd, tag)
     return f
-
-
-OutOfBounds = object()
-
-
-class EasyList(list):
-    """1-based indexed list that is forgiving with trying to access out of bounds.
-    This way generic functions can be used that try to access arbitrary relative positions."""
-    def __init__(self, lst=[], verbose=False):
-        self.verbose = verbose
-        super().__init__(lst)
-
-    def __getitem__(self, ix):
-        if ix < 0:
-            ix_ = ix
-        elif not ix:
-            ix_ = len(self)
-        else:
-            ix_ = ix - 1
-        try:
-            return super().__getitem__(ix_)
-        except IndexError:
-            if self.verbose:
-                print('{} out of bounds with list of length {}'.format(ix, len(self)))
-            return OutOfBounds
-
-    def __repr__(self):
-        res = super().__repr__()
-        return 'EasyList' + res
-
-    def __setitem__(self, ix, val):
-        raise NotImplementedError
-
-
-class AugmentY(object):
-    def __init__(self, l):
-        self._orig = l._orig if isinstance(l, AugmentY) else l
-        self.aug = [START] + list(l) + [END]  # type: List
-
-    def __repr__(self):
-        return 'Aug' + repr(self._orig)
 
 
 class Fs():
