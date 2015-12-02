@@ -1,5 +1,5 @@
 from utils import (EasyList, OutOfBounds, justargs, numargs, const, fs, mkgf,
-                   getmat, G)
+                   getmat, G, START, END, mk_word_tag, mkwts1)
 import toolz.curried as z
 from pandas.util.testing import assert_frame_equal
 
@@ -61,7 +61,7 @@ def test_mats_2_args():
 
     gft = mkgf(wst, testfs, stags, xt)
     gftb = G(fs=testfs, tags=stags, xbar=xt, ws=wst)
-    m0b = gftb(0).mat
+    # m0b = gftb(0).mat
     m0 = getmat(gft(0), generic_names=True)
     m1 = getmat(gft(1), generic_names=True)
 
@@ -78,3 +78,54 @@ def test_mats_2_args():
     m1c.loc['NNP', 'NNP'] = m1.NNP.NNP - 1
     assert_frame_equal(m1c, m0)
     return gft
+
+
+def no_test_getu1(get_u, mlp):
+    tgs = [START, 'TAG1', END]
+    fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1')}
+    ytpred = [START, 'TAG1', END]
+    x = EasyList(['wd1'])
+
+    gf = mkgf(mkwts1(fs), fs, tgs, x)
+    u, i = get_u(gf=gf, collect=True)
+    assert (u.idxmax() == ytpred).all()
+    assert u.iloc[:, -1].max() == 2
+
+
+def no_test_getu2(get_u, mlp):
+    tgs = [START, 'TAG1', END]
+    x2 = EasyList(['wd1', 'pre-end'])
+    fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1'),
+          'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)}
+    ws = z.merge(mkwts1(fs), {'pre_endx': 3})
+    gf2 = mkgf(ws, fs, tgs, x2)
+    assert all(getmat(gf2(3))[END] == 3)
+    no_test_getu2.gf2 = gf2
+    no_test_getu2.fs = fs
+    u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
+    # print(u2)
+    assert (u2.idxmax() == [START, 'TAG1', 'TAG1', END]).all()
+    assert u2.iloc[:, -1].max() == 5
+    assert mlp(i2) == ['START', 'TAG1', 'TAG1', 'END']
+    return u2, i2
+
+
+def no_test_getu3(get_u, mlp):
+    tgs = [START, 'TAG1', 'PENULTAG', END]
+    fs = {
+        'eq_wd1': mk_word_tag('wd1', 'TAG1'),
+        # 'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END),
+        'pre_endy': lambda yp, y, x, i: (yp == 'PENULTAG') and (y == END),
+        'start_nonzero': lambda yp, y, x, i: (y == START) and (i != 0),
+        'start_zero': lambda yp, y, x, i: (y == START) and (i == 0),
+        'end_nonend': lambda yp, y, x, i: (y == END) and (i != (len(x) + 1)),
+        'end_end': lambda yp, y, x, i: (y == END) and (i == (len(x) + 1)),
+    }
+    ws = z.merge(mkwts1(fs), {'pre_endy': 3, 'start_nonzero': -1, 'end_nonend': -1})
+    x2 = EasyList(['wd1', 'pre-end', 'whatevs'])
+    gf2 = mkgf(ws, fs, tgs, x2)
+    no_test_getu3.gf2 = gf2
+    no_test_getu3.fs = fs
+    u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
+    assert mlp(i2) == ['START', 'TAG1', 'PENULTAG', 'PENULTAG', 'END']
+    return u2, i2

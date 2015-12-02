@@ -11,10 +11,42 @@ from collections import namedtuple
 T = TypeVar('T')
 START = 'START'
 END = 'END'
-mkwts1 = lambda dct: {k: 1 for k in dct}
-OutOfBounds = object()
+mkwts1 = lambda dct, const=1: {k: const for k in dct}
+# OutOfBounds = object()
 funcdat = namedtuple('funcdat', 'fs tags xbar ws i')
 funcdat.__new__.__defaults__ = (None,)
+
+
+class Derp(object):
+    "Dummy object that keeps returning self/False"
+    def __call__(self, *a, **kw):
+        return self
+
+    def __getattr__(self, *a, **kw):
+        return self
+
+    def __getitem__(self, *a, **kw):
+        return self
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self):
+        return 'OutOfBounds'
+
+    def __add__(self, other):
+        return other
+
+    def __mul__(self, other):
+        return 0
+
+    def __radd__(self, other):
+        return other
+
+    def __rmul__(self, other):
+        return 0
+
+OutOfBounds = Derp()
 
 
 class EasyList(list):
@@ -48,6 +80,10 @@ class EasyList(list):
 
 class AugmentY(object):
     def __init__(self, l):
+        if isinstance(l, AugmentY):
+            self._orig = l._orig
+            self.aug = l.aug
+            return
         self._orig = l._orig if isinstance(l, AugmentY) else l
         self.aug = [START] + list(l) + [END]  # type: List
 
@@ -166,37 +202,23 @@ class FeatUtils(type):
     bookend = True
 
     @classmethod
-    def mk_sum2(cls, f: Callable[[str, str, List[str], int], int]) -> Callable[[List[str], List[str]], int]:
-        def fsum_book(xbar: List[str], ybar: List[str]) -> int:
-            """Convert function of f(yp, y, xbar, i) to one that sums over all
-            i's: F(xbar, ybar)
-            """
-            yb = AugmentY(ybar)
-            xb = EasyList(xbar)
-            # print(xb)
-            # for i in range(1, len(yb.aug)):
-            #     print(i, end=' ')
-            #     print('yp:', yb.aug[i - 1], 'y:', yb.aug[i], 'x[i]:', xb[i])
-            return sum(f(yb.aug[i - 1], yb.aug[i], xb, i) for i in range(1, len(yb.aug)))
-            fsum_book.base_f = f
-            fsum_book.__doc__ = '\n'.join([f.__doc__, fsum_book.__doc__])
-        return fsum_book
-
-    @classmethod
     def mk_sum(cls, f: Callable[[str, str, List[str], int], int]) -> Callable[[List[str], List[str]], int]:
         def fsum_book(xbar: List[str], ybar: List[str]) -> int:
             """Convert function of f(yp, y, xbar, i) to one that sums over all
             i's: F(xbar, ybar)
             """
-            yb = AugmentY(ybar)
+            if cls.bookend:
+                yb = AugmentY(ybar)
+            else:
+                yb = ybar
             xb = EasyList(xbar)
     #         print(xb)
     #         for i in range(1, len(yb.aug)):
     #             print(i, end=' ')
     #             print('yp:', yb.aug[i - 1], 'y:', yb.aug[i], 'x[i]:', xb[i])
             return sum(f(yb.aug[i - 1], yb.aug[i], xb, i) for i in range(1, len(yb.aug)))
-            fsum_book.base_f = f
-            fsum_book.__doc__ = '\n'.join([f.__doc__, fsum_book.__doc__])
+        # fsum_book.base_f = f
+        # fsum_book.__doc__ = '\n'.join([f.__doc__, fsum_book.__doc__])
         return fsum_book
 
     @staticmethod
@@ -210,10 +232,6 @@ class FeatUtils(type):
     def get_funcs(cls) -> Dict[str, Callable[..., bool]]:
         return {fname: f for fname, f in cls.__dict__.items()
                 if not fname.startswith('_') and isinstance(f, types.FunctionType)}
-
-    @staticmethod
-    def mkbookend(ybar):
-        return [START] + list(ybar) + [END]
 
 
 def mk_word_tag(wd, tag):

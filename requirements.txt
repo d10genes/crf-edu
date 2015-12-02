@@ -6,3 +6,4 @@ toolz
 flake8
 mypy-lang
 pytest
+snakeviz

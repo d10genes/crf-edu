@@ -1,6 +1,8 @@
 
 # coding: utf-8
 
+# wo crf
+
 # In[ ]:
 
 from py3k_imports import * 
@@ -23,7 +25,7 @@ get_ipython().run_cell_magic('javascript', '', "IPython.keyboard_manager.command
 
 from collections import defaultdict, Counter
 import inspect
-from typing import List, Dict
+from typing import List, Dict, Tuple
 Df = Dict
 Y = str
 
@@ -71,9 +73,19 @@ with open('data/pos.train.txt','r') as f:
 
 # In[ ]:
 
+import utils; reload(utils); from utils import *
+# from utils import sum1, sum2, post_mr, mk_sum, F
+fs = AttrDict(fs)
+fsums = AttrDict(fsums)
+
+
+# In[ ]:
+
 sents = filter(None, [zip(*[e.split() for e in sent.splitlines()]) for sent in txt[:].split('\n\n')])
 X = map(itg(0), sents)
 Y_ = map(itg(1), sents)
+Xa = map(EasyList, X)
+Ya = map(AugmentY, Y_)
 tags = sorted({tag for y in Y_ for tag in y if tag.isalpha()})
 
 
@@ -132,16 +144,6 @@ wcts = z.valfilter(lambda x: sum(x.values()) > 4, wcts_all)
 # \sum_{i=1}^n f_j(y_{i-1}, y_i, \bar x, i)
 # $$
 
-# # Utils Imports
-
-# In[ ]:
-
-import utils; reload(utils); from utils import *
-# from utils import sum1, sum2, post_mr, mk_sum, F
-fs = AttrDict(fs)
-fsums = AttrDict(fsums)
-
-
 # In[ ]:
 
 def eq(x):
@@ -182,6 +184,8 @@ def sch(term, x=False):
 #     # gf = mkgf(ws, fs, tags, ['Mr.', 'Happy', 'derp'])
 
 # ### Generate maximum score matrix U
+# $$U(k, v) = \max_u [U(k-1, u) + g_k(u,v)]$$
+# $$U(1, vec) = \max_{y_0} [U(0, y_0) + g_k(y_0,vec)]$$
 
 # In[ ]:
 
@@ -265,65 +269,15 @@ def mlp(idxs, i: int=None, tagsrev: List[Y]=[END]) -> List[Y]:
     yprev = idxs.loc[tag, i]
     return mlp(idxs, i=i - 1, tagsrev=tagsrev + [yprev])
 
-# u2, i2 = get_u(gf=test_getu2.gf2, collect=True, verbose=1)
-# i2
-# u, k = get_u(4, collect=1)
-
 
 # In[ ]:
 
-def test_getu1(get_u):
-    tgs = [START, 'TAG1', END]
-    fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1')}
-    ytpred = [START, 'TAG1', END]
-    x = EasyList(['wd1'])
-    
-    gf = mkgf(mkwts1(fs), fs, tgs, x)
-    u, i = get_u(gf=gf, collect=True)
-    assert (u.idxmax() == ytpred).all()
-    assert u.iloc[:, -1].max() == 2
-    
-def test_getu2(get_u):
-    tgs = [START, 'TAG1', END]
-    x2 = EasyList(['wd1', 'pre-end'])
-    fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1'),
-          'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)}
-    ws = z.merge(mkwts1(fs), {'pre_endx': 3})
-    gf2 = mkgf(ws, fs, tgs, x2)
-    assert all(getmat(gf2(3))[END] == 3)
-    test_getu2.gf2 = gf2
-    test_getu2.fs = fs
-    u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
-    # print(u2)
-    assert (u2.idxmax() == [START, 'TAG1', 'TAG1', END]).all()
-    assert u2.iloc[:, -1].max() == 5
-    assert mlp(i2) == ['START', 'TAG1', 'TAG1', 'END']
-    return u2, i2
-    
-def test_getu3(get_u):
-    tgs = [START, 'TAG1', 'PENULTAG', END]
-    fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1'),
-#           'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END),
-          'pre_endy': lambda yp, y, x, i: (yp == 'PENULTAG') and (y == END),
-          'start_nonzero': lambda yp, y, x, i: (y == START) and (i != 0),
-          'start_zero': lambda yp, y, x, i: (y == START) and (i == 0),
-          'end_nonend': lambda yp, y, x, i: (y == END) and (i != (len(x) + 1)),
-          'end_end': lambda yp, y, x, i: (y == END) and (i == (len(x) + 1)),
-         }
-    ws = z.merge(mkwts1(fs), {'pre_endy': 3, 'start_nonzero': -1, 'end_nonend': -1})
-    x2 = EasyList(['wd1', 'pre-end', 'whatevs'])
-    gf2 = mkgf(ws, fs, tgs, x2)
-    test_getu3.gf2 = gf2
-    test_getu3.fs = fs
-    u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
-    assert mlp(i2) == ['START', 'TAG1', 'PENULTAG', 'PENULTAG', 'END']
-    return u2, i2
+from test import no_test_getu1, no_test_getu2, no_test_getu3
 
-test_getu1(get_u)
-test_getu2(get_u)
-test_getu3(get_u)
+no_test_getu1(get_u, mlp)
+no_test_getu2(get_u, mlp)
+no_test_getu3(get_u, mlp)
 None
-# u, i = test_getu2()
 
 
 # In[ ]:
@@ -367,7 +321,7 @@ def predict(xbar=None, fs=None, tags=None, ws=None):
     return path, u.ix[END].iloc[-1]
     
 path2, score2 = predict(xbar=EasyList(['wd1', 'pre-end', 'whatevs']),
-                        fs=test_getu3.fs,
+                        fs=no_test_getu3.fs,
                         tags=[START, 'TAG1', 'PENULTAG', END])
 
 
@@ -375,8 +329,8 @@ path2, score2 = predict(xbar=EasyList(['wd1', 'pre-end', 'whatevs']),
 # $$\frac{\partial}{\partial w_j} \log p(y | x;w) = F_j (x, y) - \frac1 {Z(x, w)} \sum_{y'} F_j (x, y') [\exp \sum_{j'} w_{j'} F_{j'} (x, y')]$$
 # $$= F_j (x, y) - E_{y' \sim  p(y | x;w) } [F_j(x,y')]$$
 # 
-
-# ## Forward-backward algorithm
+# 
+# ### Forward-backward algorithm
 # - Partition function $Z(\bar x, w) = \sum_{\bar y} \exp \sum _{j=1} ^ J w_j F_j (\bar x, \bar y) $ can be intractible; forward-backward vectors can make it easier to compute
 #    
 # $$\alpha (k + 1,v) = \sum_u \alpha (k,u)[\exp g_{k+1}(u,v)] \in ℝ^m$$
@@ -391,6 +345,116 @@ path2, score2 = predict(xbar=EasyList(['wd1', 'pre-end', 'whatevs']),
 # $$ Z(\bar x, w) = \alpha(n+1, END) $$
 # 
 # [There seems to be an error in the notes, which state that $Z(\bar x, w) = \sum_v \alpha(n, v) $. If this is the case, $Z$ calculated with $\alpha$ will never get a contribution from $g_{n+1}$, while $Z$ calculated with $\beta$ will in the $\beta(u, n)$ step.]
+
+# In[ ]:
+
+def get_asum(gf, knext=None, vb=False):
+def get_bsum(gf, k=None, vb=False):
+
+
+# Check correctness of forward and backward vectors.
+# - $ Z(\bar x, w) = \beta(START, 0) = \alpha(n+1, END) $
+# - For all positions $k=0...n+1$, $\sum_u \alpha(k, u) \beta(u, k) = Z(\bar x, w)$
+
+# In[ ]:
+
+def test_fwd_bkwd():
+    tgs = [START, 'TAG1', END]
+    x = EasyList(['wd1', 'pre-end'])
+    fs = {
+        # 'eq_wd1': mk_word_tag('wd1', 'TAG1'),
+        'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)
+         }
+    ws = z.merge(mkwts1(fs), {'pre_endx': 1})
+    gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
+
+    za = get_asum(gf).END
+    zb = get_bsum(gf).START
+    assert za == zb
+    
+    for k in range(len(x) + 2):
+        assert get_asum(gf, k) @ get_bsum(gf, k) == za
+    return za
+    
+test_fwd_bkwd()
+
+
+# ### Calculate expected value of feature function
+# Weighted by conditional probability of $y'$ given $x$
+# $$E_{y' \sim  p(y | x;w) } [F_j(x,y')]$$
+
+# # Utils Imports
+
+# In[ ]:
+
+import utils; reload(utils); from utils import *
+# from utils import sum1, sum2, post_mr, mk_sum, F
+fs = AttrDict(fs)
+fsums = AttrDict(fsums)
+
+
+# In[ ]:
+
+k = 0
+tgs = [START, 'TAG1', END]
+x = EasyList(['wd1', 'pre-end'])
+fs = {
+#     'eq_wd1': mk_word_tag('wd1', 'TAG1'),
+    'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)
+     }
+yb = ['TAG1', 'TAG1']
+ybar = AugmentY(yb)
+ws = z.merge(mkwts1(fs), {'pre_endx': 1})
+# f = fs['eq_wd1']
+# gf = mkgf(ws, fs, tgs, x)
+gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
+
+
+# In[ ]:
+
+fj = fs['pre_endx']
+
+
+# In[ ]:
+
+def expectation(gf, fj):
+    n = len(gf.xbar)
+    ss = 0
+    za = get_asum(gf).END
+    
+    for i in range(1, n + 2):
+        gfix = np.exp(gf(i).mat)
+        alpha_vec = get_asum(gf, i - 1)
+        beta_vec = get_bsum(gf, i)
+        ss += sum(
+                [fj(yprev, y, gf.xbar, i) * alpha_vec[yprev] * gfix.loc[yprev, y] * beta_vec[y]
+                for yprev in tgs
+            for y in tgs])
+    return ss / za
+
+def expectation2(gf, fj):
+    n = len(gf.xbar)
+    ss = 0
+    za = get_asum(gf).END
+    
+    for i in range(1, n + 2):
+        gfix = np.exp(gf(i).mat)
+        alpha_vec = get_asum(gf, i - 1)
+        beta_vec = get_bsum(gf, i)
+        for yprev in tgs:
+            for y in tgs:
+                ff = fj(yprev, y, gf.xbar, i)
+                α = alpha_vec[yprev]
+                β = beta_vec[y]
+                gfx = gfix.loc[yprev, y]
+                ss += ff * α * β * gfx
+    return ss / za
+
+ee = 1
+
+# %time expectation(gf, fs['pre_endx'])
+# e1, e2
+
 
 # In[ ]:
 
@@ -410,7 +474,8 @@ def get_asum(gf, knext=None, vb=False):
     ak = get_asum(gf, k, vb=vb)
     
     names = 'exp[g{k1}] g{k1} a_{k}'.format(k1=knext, k=k).split()
-    p(side_by_side(np.exp(gnext), gnext, ak, names=names))
+    if vb:
+        p(side_by_side(np.exp(gnext), gnext, ak, names=names))
     return Series([sum([ak[u] * np.exp(gnext.loc[u, v]) for u in tags]) for v in tags], index=tags)
 
 
@@ -426,124 +491,283 @@ def get_bsum(gf, k=None, vb=False):
         return init_score(gf.tags, tag=END)
     gnext = getmat(gf(k + 1))
     bnext = get_bsum(gf, k + 1, vb=vb)
-    p(side_by_side(np.exp(gnext), gnext, bnext, names=['exp[g{}]'.format(k+1), 'g{}'.format(k+1), 'b_{}'.format(k+1)]))
+    if vb:
+        p(side_by_side(np.exp(gnext), gnext, bnext, names=['exp[g{}]'.format(k+1), 'g{}'.format(k+1), 'b_{}'.format(k+1)]))
     return Series([sum([np.exp(gnext.loc[u, v]) * bnext[v] for v in tags]) for u in tags], index=tags)
 
-# # get_asum(gf, 3, 1)
-# get_asum(gf, 2)
-# # get_asum(gf, 1)
-# # get_asum(gf, 0, 1)
-# get_asum(gf, vb=1)
+
+# In[ ]:
+
+get_ipython().magic('prun -qD profex.prof expectation2(gf, fj)')
 
 
 # In[ ]:
 
-k = 0
-tgs = [START, 'TAG1', END]
-x = EasyList(['wd1', 'pre-end'])
-fs = {
-#     'eq_wd1': mk_word_tag('wd1', 'TAG1'),
-    'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)
-     }
-ws = z.merge(mkwts1(fs), {'pre_endx': 1})
-# f = fs['eq_wd1']
-# gf = mkgf(ws, fs, tgs, x)
-gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
+expectation(gf, fj)
+
+
+# In[ ]:
+
+expectation2(gf, fj)
+
+
+# In[ ]:
+
+fj
+
+
+# In[ ]:
+
+ag = ybar.aug
+yn = len(ag)
+nmx = yn - 1
+
+
+# In[ ]:
+
+fj(ag[nmx - 1], ag[nmx], x, nmx)
+
+
+# In[ ]:
+
+ag
+
+
+# In[ ]:
+
+Fj = FeatUtils.mk_sum(fj)
+Fj(x, yb)
+
+
+# In[ ]:
+
+def partial_d(gf, fj, x, y, Fj=None) -> float:
+    if Fj is None:
+        Fj = FeatUtils.mk_sum(fj)
+    return Fj(x, y) - expectation(gf, fj)
+
+
+# ## Test Partial
+
+# In[ ]:
+
+def process_corpus(corpus, sep='//'):
+    psplit = lambda f: (lambda xs: map(z.comp(f, str.split), xs))
+    linepairs = z.comp(z.map(mc('split', sep)), str.splitlines)(corpus)
+    xs_, ys_ = zip(*linepairs)
+    xs, ys = psplit(EasyList)(xs_), psplit(AugmentY)(ys_)
+    return xs, ys 
 
 
 # In[ ]:
 
 
-    
-get_bsum(gf, 3)
-get_bsum(gf, 2)
-# get_bsum(gf, 1)
-# za = 
 
-
-# Check correctness of forward and backward vectors.
-# - $ Z(\bar x, w) = \beta(START, 0) = \alpha(n+1, END) $
-# - For all positions $k=0...n+1$, $\sum_u \alpha(k, u) \beta(u, k) = Z(\bar x, w)$
 
 # In[ ]:
 
-def test_fwd_bkwd():
-    tgs = [START, 'TAG1', END]
-    x = EasyList(['wd1', 'pre-end'])
-    fs = {
-#         'eq_wd1': mk_word_tag('wd1', 'TAG1'),
-        'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)
-         }
-    ws = z.merge(mkwts1(fs), {'pre_endx': 1})
+Xa[:2]
+Ya[:2]
+
+
+# In[ ]:
+
+corpus = '''Nothing seems hard here .//NN VBZ JJ RB .
+The reason is cost .//DT NN VBZ NN .
+Terms were n't disclosed .//NNS VBD RB VBN .
+Mr. Juliano really really thinks so .//NNP NNP RB RB VBZ RB .
+Mr. Bill seems dead .//NNP NNP VBZ JJ .
+Young & Rubicam 's Pact//NNP CC NNP POS NNP
+Albany escaped embarrassingly unscathed .//NNP VBD RB JJ .'''
+
+
+# In[ ]:
+
+xs, ys = process_corpus(corpus)
+zs = zip(xs, ys)
+tgs = sorted({y for ybar in ys for y in ybar.aug})
+
+
+iscapped = lambda x: x and x[0].isupper()
+
+
+# In[ ]:
+
+def mk_fx_tag(fx, tag):
+    def f(yp_, y, x, i):
+        return x[i] and fx(x[i]) and (y == tag)
+    f.__name__ = '{}(x)_{}'.format(fx, tag)
+    f.__doc__ = '{}(x[i]) and (y == {})'.format(fx, tag)
+    return f
+
+def runFs(Fj, zs=zs):
+    return [Fj(x, y) for x, y in zs]
+
+
+# In[ ]:
+
+ys
+
+
+# In[ ]:
+
+tgs
+
+
+# In[ ]:
+
+fs = dict(
+    seems_VBZ=mk_word_tag('seems', 'VBZ'),
+    ly_VBZ=lambda yp, y, x, i: x[i] and x[i].endswith('ly') and (y == 'RB'),
+    cap_NN=mk_fx_tag(iscapped, 'NN'),
+    cap_NNP=mk_fx_tag(iscapped, 'NNP'),
+    nocap_START=lambda yp, y, x, i: x[i] and not iscapped(x[i]) and (yp == START),
+#     cap_NN=lambda yp, y, x, i: iscapped(x[i]) and (y == 'NN'),
+)
+Fs = z.valmap(FeatUtils.mk_sum, fs)
+
+assert sum(runFs(Fs['ly_VBZ'])) == 3
+assert sum(runFs(Fs['cap_NNP'])) == 8
+assert sum(runFs(Fs['cap_NN'])) == 1
+assert not sum(runFs(Fs['nocap_START']))
+
+
+# In[ ]:
+
+d = Derp()
+d + 1
+d * 3
+1 + d
+
+
+# In[ ]:
+
+FeatUtils.bookend = False
+
+
+# In[ ]:
+
+
+# Fj = FeatUtils.mk_sum(ly)
+
+
+# In[ ]:
+
+get_ipython().magic('prun -qD prof.prof partial_d(gf, fj, x, y, Fj=None)')
+
+
+# In[ ]:
+
+λ = 1
+α
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+fj = fs['ly_VBZ']
+Fj = Fs['ly_VBZ']
+ws = mkwts1(fs, const=1)
+
+for x, y in zs:
     gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
-
-    za = get_asum(gf).END
-    zb = get_bsum(gf).START
-    assert za == zb
+    if not Fj(x, y):  # TODO: is this always right?
+        continue
+    pder = partial_d(gf, fj, x, y, Fj=Fj)
+    wj0 = ws['ly_VBZ']
+    ws['ly_VBZ'] += λ * pder
+    print('wj: {} -> {}'.format(wj0, ws['ly_VBZ']))
+    print('pder: {:.2f}'.format(pder), Fj(x, y))
     
-    for k in range(len(x) + 2):
-        assert get_asum(gf, k) @ get_bsum(gf, k) == za
-    return za
+
+
+# In[ ]:
+
+zs
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+del Fj
+
+
+# In[ ]:
+
+fj = fs['ly_VBZ']
+# Fj = Fs['ly_VBZ']
+
+def train_(zs: List[Tuple[EasyList, AugmentY]],
+          fjid='ly_VBZ', ws=ws, vb=True, tgs=tgs):
+    fj = fs[fjid]
+    Fj = FeatUtils.mk_sum(fj)
+    pt = testprint(vb)
+    for x, y in zs:
+        gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
+        if not Fj(x, y):  # TODO: is this always right?
+            continue
+        pder = partial_d(gf, fj, x, y, Fj=Fj)
+        wj0 = ws[fjid]
+        ws[fjid] += λ * pder
+        pt('wj: {} -> {}'.format(wj0, ws[fjid]))
+        pt('pder: {:.2f}'.format(pder), Fj(x, y))
+    return ws
+
+def train_j(zs: List[Tuple[EasyList, AugmentY]],
+          fjid='ly_VBZ', ws=ws, tol=.001, maxiter=10, vb=True, tgs=tgs):
+    ws1 = ws
+    pt = testprint(vb)
     
-test_fwd_bkwd()
+    for i in count(1):
+        pt('Iter', i)
+        wj1 = ws1[fjid]
+        ws2 = train_(zs, fjid=fjid, ws=ws1, vb=vb, tgs=tgs)
+        wj2 = ws2[fjid]
+        if abs((wj2 - wj1) / wj1) < tol or (i >= maxiter):
+            return ws, i
+        ws1 = ws2
+        
+def train(zs, fs, ws, tol=.001, maxiter=10, vb=False, tgs=tgs):
+    wst = ws.copy()
+    for fname, f in fs.items():
+        wst, i = train_j(zs, fjid=fname, ws=wst, tol=tol, maxiter=maxiter, vb=vb, tgs=tgs)
+        print(fname, 'trained in', i, 'iters: {:.2f}'.format(wst[fname]))
+        sys.stdout.flush()
+    return wst
 
 
 # In[ ]:
 
-gf(3).mat
+train_j(zs, fjid='ly_VBZ', ws=ws)
 
 
 # In[ ]:
 
-get_asum(gf, 3)
+get_ipython().magic('time ws1 = train(zs, fs, mkwts1(fs, 1), maxiter=1)')
 
 
 # In[ ]:
 
-get_bsum(gf, 3)
+# ws3 = train(zs, fs, mkwts1(fs, 1))
+ws3 = train(zs, fs, ws3, vb=False, maxiter=20, tol=.01)
 
 
 # In[ ]:
 
-get_asum(gf).sum()
+ws3
 
 
 # In[ ]:
 
-Series([1, 2, 3]) @ Series([1, 2, 3])
-
-
-# In[ ]:
-
-get_a(gf)
-
-
-# In[ ]:
-
-get_asum(gf, k).dot(get_bsum(gf, k))
-
-
-# In[ ]:
-
-for k in range(4):
-    # k = 3
-    print(get_asum(gf, k) @ get_bsum(gf, k))
-#     print(get_a.a(k) @ get_b.b(k))
-
-
-# In[ ]:
-
-get_a(gf, 2)
-
-
-# In[ ]:
-
-get_a(gf), get_b(gf)
-
-
-# In[ ]:
-
-get_a(gf).sum()
+ws2
 
 
 # In[ ]:
@@ -551,42 +775,54 @@ get_a(gf).sum()
 
 
 
-
 # In[ ]:
 
-get_b.b(k)
-
-
-# In[ ]:
-
-get_a.a(k)
+ws2 = train(zs, fjid='ly_VBZ', ws=ws)
 
 
 # In[ ]:
 
-get_b(gf)
+ws2
 
 
 # In[ ]:
 
-a1 = 
-gf
+ws3 = train(zs, fjid='ly_VBZ', ws=ws2)
 
 
 # In[ ]:
 
-gfa = mkgf(ws, fs, tags, xx)
-g1 = gfa(1)
+ws3
 
 
 # In[ ]:
 
-del forwarder
+ws2 = ws.copy
 
 
 # In[ ]:
 
-yt = 
+gf.ws['ly_VBZ']
+
+
+# In[ ]:
+
+gf.ws['ly_VBZ'] -= 1
+
+
+# In[ ]:
+
+gf._replace(ws=z.valmap(lambda x: x + 1, ws))
+
+
+# In[ ]:
+
+gf.ws = ws
+
+
+# In[ ]:
+
+for Fj 
 
 
 # In[ ]:
@@ -596,129 +832,44 @@ fs
 
 # In[ ]:
 
-xt = EasyList(['wd1', 'wd2'])
-xt
 
-
-# In[ ]:
-
-def mkforward(i=0, aprevs=None):
-    if not i:
-        return mkforward(i=i + 1, aprevs=[mka(y[i] == V)])
-    if i >= len(y):
-        return aprevs
-    aprev = aprevs[-1]
-    gk = mkg(i)
-    ai = mka([sum(aprev[u] * np.e ** gk(u, v) for u in V) for v in V])
-    return mkforward(i=i + 1, aprevs=aprevs + [ai])
 
 
 # In[ ]:
 
-def alpha(x, y, V, ws, fs) -> List[Series]:
-    """Unnormalized probability of set of possible sequences that end at position
-    `col` with tag `row`
-    """
-    mka = lambda x: Series(list(x), index=V)
-    mkg = mkgf(ws, fs, V, x)
-    def mkforward(i=0, aprevs=None):
-        if not i:
-            return mkforward(i=i + 1, aprevs=[mka(y[i] == V)])
-        if i >= len(y):
-            return aprevs
-        aprev = aprevs[-1]
-        gk = mkg(i)
-        ai = mka([sum(aprev[u] * np.e ** gk(u, v) for u in V) for v in V])
-        return mkforward(i=i + 1, aprevs=aprevs + [ai])
-    return DataFrame(mkforward()).T
+xs, ys
 
 
 # In[ ]:
 
-def forward(x, y, V, ws, fs) -> List[Series]:
-    """Unnormalized probability of set of possible sequences that end at position
-    `col` with tag `row`
-    """
-    mka = lambda x: Series(list(x), index=V)
-    mkg = mkgf(ws, fs, V, x)
-    def mkforward(i=0, aprevs=None):
-        if not i:
-            return mkforward(i=i + 1, aprevs=[mka(y[i] == V)])
-        if i >= len(y):
-            return aprevs
-        aprev = aprevs[-1]
-        gk = mkg(i)
-        ai = mka([sum(aprev[u] * np.e ** gk(u, v) for u in V) for v in V])
-        return mkforward(i=i + 1, aprevs=aprevs + [ai])
-    return DataFrame(mkforward()).T
+fives = [(x, y) for x, y in zip(X, Y_) if len(x) == 5]
+fives = DataFrame(fives).applymap(' '.join)
+fives
 
 
 # In[ ]:
 
-z.operator.sub(1)(9)
+Series(map(len, X)).value_counts(normalize=0)
 
 
 # In[ ]:
 
-def backward(x, y, V, ws, fs) -> List[Series]:
-    mksrs = lambda x: Series(list(x), index=V)
-    mkg = mkgf(ws, fs, V, x)
-    i_init = len(y)-1
-    i_fin = -1
-    nxt = lambda x: x - 1
-    
-    def mkprobvec(i=i_init, pprevs=None):
-        if i == i_init:
-            return mkprobvec(i=nxt(i), pprevs=[mksrs(y[i] == V)])
-        if i == i_fin:
-            return pprevs
-        pprev = pprevs[-1]
-        gk = mkg(i)
-        ai = mksrs([sum(pprev[inv] * np.e ** gk(outv, inv) for inv in V) for outv in V])
-        return mkprobvec(i=nxt(i), pprevs=pprevs + [ai])
-    return DataFrame(mkprobvec()[::-1]).T
+x
 
 
 # In[ ]:
 
-DataFrame([xx, yy])
+ybar
 
 
 # In[ ]:
 
-aa
+Fj(x, ybar)
 
 
 # In[ ]:
 
-bb = backward(xx, yy, ts, ws, fs)
-bb
-
-
-# In[ ]:
-
-yy
-
-
-# In[ ]:
-
-aa = forward(xx, yy, ts, ws, fs)
-aa.iloc[:, -1].sum()
-
-
-# In[ ]:
-
-bb.sum().sum()
-
-
-# In[ ]:
-
-[sum(a0[u] * np.e ** g1(u, v) for u in ts) for v in ts]
-
-
-# In[ ]:
-
-[np.e ** sum(g1(u, v) for u in ts) for v in ts]
+partial_d(gf, fj, x, ybar)
 
 
 # In[ ]:
@@ -728,29 +879,17 @@ bb.sum().sum()
 
 # In[ ]:
 
-fsums.wd_a(xx, yy)
+AugmentY(AugmentY(yb))
 
 
-# $$U(k, v) = \max_u [U(k-1, u) + g_k(u,v)]$$
-# $$U(1, vec) = \max_{y_0} [U(0, y_0) + g_k(y_0,vec)]$$
+# In[ ]:
+
+yb
+
+
+# In[ ]:
+
+ss
+
 
 # ## Extra
-
-# In[ ]:
-
-t = '''$3,275 Individual $6,550 Family
-$2,000 Individual $4,000 Family
-$2,000 Individual $4,000 Family
-'''.splitlines()
-x = map(str.split, t)
-i = z.pipe(x, z.map(itg(0)), '\t'.join)
-# i = map(itg(0), x)
-# f = map(itg(2), x)
-f
-i
-
-
-# In[ ]:
-
-
-
