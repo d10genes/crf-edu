@@ -272,8 +272,8 @@ def mlp(idxs, i: int=None, tagsrev: List[Y]=[END]) -> List[Y]:
 
 # In[ ]:
 
-from test import no_test_getu1, no_test_getu2, no_test_getu3
-
+import test; reload(test); from test import no_test_getu1, no_test_getu2, no_test_getu3
+ 
 no_test_getu1(get_u, mlp)
 no_test_getu2(get_u, mlp)
 no_test_getu3(get_u, mlp)
@@ -315,7 +315,7 @@ def ff(m):
 def predict(xbar=None, fs=None, tags=None, ws=None):
     "Return argmax_y with corresponding score"
     ws = ws or mkwts1(fs)
-    gf = mkgf(ws, fs, tags, xbar)
+    gf = G(ws=ws, fs=fs, tags=tags, xbar=xbar)
     u, i = get_u(gf=gf, collect=True, verbose=0)
     path = mlp(i)
     return path, u.ix[END].iloc[-1]
@@ -346,15 +346,58 @@ path2, score2 = predict(xbar=EasyList(['wd1', 'pre-end', 'whatevs']),
 # 
 # [There seems to be an error in the notes, which state that $Z(\bar x, w) = \sum_v \alpha(n, v) $. If this is the case, $Z$ calculated with $\alpha$ will never get a contribution from $g_{n+1}$, while $Z$ calculated with $\beta$ will in the $\beta(u, n)$ step.]
 
-# In[ ]:
-
-def get_asum(gf, knext=None, vb=False):
-def get_bsum(gf, k=None, vb=False):
-
-
 # Check correctness of forward and backward vectors.
 # - $ Z(\bar x, w) = \beta(START, 0) = \alpha(n+1, END) $
 # - For all positions $k=0...n+1$, $\sum_u \alpha(k, u) \beta(u, k) = Z(\bar x, w)$
+
+# In[ ]:
+
+def mk_asum(gf, vb=False):
+    n = len(gf.xbar)
+    tags = gf.tags
+    p = testprint(vb)
+    
+    @memoize
+    def get_asum(knext=None):
+        if knext is None:
+            # The first use of the forward vectors is to write
+            return get_asum(n+1)
+        if knext < 0:
+            raise ValueError('k ({}) cannot be negative'.format(k))
+        if knext == 0:
+            return init_score(tags, tag=START)
+        k = knext - 1
+        gnext = gf(knext).mat
+        ak = get_asum(k)
+
+        if vb:
+            names = 'exp[g{k1}] g{k1} a_{k}'.format(k1=knext, k=k).split()
+            p(side_by_side(np.exp(gnext), gnext, ak, names=names))
+        return Series([sum([ak[u] * np.exp(gnext.loc[u, v]) for u in tags]) for v in tags], index=tags)
+    return get_asum  #(knext, vb=vb)
+
+
+def mk_bsum(gf, vb=False):
+    p = testprint(vb)
+    n = len(gf.xbar)
+    tags = gf.tags
+    
+    @memoize
+    def get_bsum(k=None):
+        if k is None:
+            return get_bsum(0)
+        if k > n + 1:
+            raise ValueError('{} > length of x {} + 1'.format(k, n))
+        if k == n + 1:
+            return init_score(gf.tags, tag=END)
+        gnext = gf(k + 1).mat
+        bnext = get_bsum(k + 1)
+        if vb:
+            names = ['exp[g{}]'.format(k+1), 'g{}'.format(k+1), 'b_{}'.format(k+1)]
+            p(side_by_side(np.exp(gnext), gnext, bnext, names=names))
+        return Series([sum([np.exp(gnext.loc[u, v]) * bnext[v] for v in tags]) for u in tags], index=tags)
+    return get_bsum
+
 
 # In[ ]:
 
@@ -368,15 +411,22 @@ def test_fwd_bkwd():
     ws = z.merge(mkwts1(fs), {'pre_endx': 1})
     gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
 
-    za = get_asum(gf).END
-    zb = get_bsum(gf).START
+    amkr = mk_asum(gf)
+    bmkr = mk_bsum(gf)
+    za = amkr().END
+    zb = bmkr().START
     assert za == zb
     
     for k in range(len(x) + 2):
-        assert get_asum(gf, k) @ get_bsum(gf, k) == za
+        assert amkr(k) @ bmkr(k) == za
     return za
     
 test_fwd_bkwd()
+
+
+# In[ ]:
+
+
 
 
 # ### Calculate expected value of feature function
@@ -420,8 +470,33 @@ fj = fs['pre_endx']
 def expectation(gf, fj):
     n = len(gf.xbar)
     ss = 0
+    asummer = mk_asum(gf)
+    bsummer = mk_bsum(gf)
+    
+    za = asummer().END
+    
+    for i in range(1, n + 2):
+        gfix = np.exp(gf(i).mat)
+        alpha_vec = asummer(i - 1)
+        beta_vec = bsummer(i)
+        # alpha_vec = get_asum(gf, i - 1)
+        # beta_vec = get_bsum(gf, i)
+        for yprev in tgs:
+            α = alpha_vec[yprev]
+            for y in tgs:
+                ff = fj(yprev, y, gf.xbar, i)
+                β = beta_vec[y]
+                gfx = gfix.loc[yprev, y]
+                ss += ff * α * β * gfx
+    return ss / za
+
+
+def expectation_(gf, fj):
+    n = len(gf.xbar)
+    ss = 0
     za = get_asum(gf).END
     
+
     for i in range(1, n + 2):
         gfix = np.exp(gf(i).mat)
         alpha_vec = get_asum(gf, i - 1)
@@ -432,23 +507,6 @@ def expectation(gf, fj):
             for y in tgs])
     return ss / za
 
-def expectation2(gf, fj):
-    n = len(gf.xbar)
-    ss = 0
-    za = get_asum(gf).END
-    
-    for i in range(1, n + 2):
-        gfix = np.exp(gf(i).mat)
-        alpha_vec = get_asum(gf, i - 1)
-        beta_vec = get_bsum(gf, i)
-        for yprev in tgs:
-            for y in tgs:
-                ff = fj(yprev, y, gf.xbar, i)
-                α = alpha_vec[yprev]
-                β = beta_vec[y]
-                gfx = gfix.loc[yprev, y]
-                ss += ff * α * β * gfx
-    return ss / za
 
 ee = 1
 
@@ -458,42 +516,22 @@ ee = 1
 
 # In[ ]:
 
-def get_asum(gf, knext=None, vb=False):
-    n = len(gf.xbar)
-    tags = gf.tags
-    p = testprint(vb)
-    if knext is None:
-        # The first use of the forward vectors is to write
-        return get_asum(gf, knext=n+1, vb=vb)
-    if knext < 0:
-        raise ValueError('k ({}) cannot be negative'.format(k))
-    if knext == 0:
-        return init_score(tags, tag=START)
-    k = knext - 1
-    gnext = getmat(gf(knext))
-    ak = get_asum(gf, k, vb=vb)
-    
-    names = 'exp[g{k1}] g{k1} a_{k}'.format(k1=knext, k=k).split()
-    if vb:
-        p(side_by_side(np.exp(gnext), gnext, ak, names=names))
-    return Series([sum([ak[u] * np.exp(gnext.loc[u, v]) for u in tags]) for v in tags], index=tags)
 
 
-def get_bsum(gf, k=None, vb=False):
-    p = testprint(vb)
-    n = len(gf.xbar)
-    tags = gf.tags
-    if k is None:
-        return get_bsum(gf, k=0, vb=vb)
-    if k > n + 1:
-        raise ValueError('{} > length of x {} + 1'.format(k, n))
-    if k == n + 1:
-        return init_score(gf.tags, tag=END)
-    gnext = getmat(gf(k + 1))
-    bnext = get_bsum(gf, k + 1, vb=vb)
-    if vb:
-        p(side_by_side(np.exp(gnext), gnext, bnext, names=['exp[g{}]'.format(k+1), 'g{}'.format(k+1), 'b_{}'.format(k+1)]))
-    return Series([sum([np.exp(gnext.loc[u, v]) * bnext[v] for v in tags]) for u in tags], index=tags)
+
+# In[ ]:
+
+gf
+
+
+# In[ ]:
+
+get_ipython().magic('time expectation(gf, fj)')
+
+
+# In[ ]:
+
+get_ipython().magic('time expectation_(gf, fj)')
 
 
 # In[ ]:
@@ -503,12 +541,82 @@ get_ipython().magic('prun -qD profex.prof expectation2(gf, fj)')
 
 # In[ ]:
 
-expectation(gf, fj)
+TODO: retrieve asum
+
+
+# %time expectation(gf, fj)
+
+# In[ ]:
+
+
 
 
 # In[ ]:
 
-expectation2(gf, fj)
+
+
+
+# In[ ]:
+
+
+
+
+# 
+
+# In[ ]:
+
+asm = mk_asum(gf, vb=False)
+all(asm() == get_asum(gf, knext=None, vb=False))
+
+
+# In[ ]:
+
+get_asum(gf, knext=None, vb=False)
+
+
+# In[ ]:
+
+get_bsum(gf, k=None, vb=False)
+
+
+# In[ ]:
+
+bsm = mk_bsum(gf, vb=False)
+bsm()
+
+
+# In[ ]:
+
+for i in range(len(gf.xbar) + 2):
+    print(all(get_asum(gf, knext=i, vb=False) == asm(i)))
+    
+
+
+# In[ ]:
+
+for i in range(len(gf.xbar) + 2):
+    print(all(get_bsum(gf, k=i, vb=False) == bsm(i)))
+    
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+gf(i)
+
+
+# In[ ]:
+
+
+
+
+# In[ ]:
+
+
 
 
 # In[ ]:
@@ -539,6 +647,8 @@ Fj = FeatUtils.mk_sum(fj)
 Fj(x, yb)
 
 
+# ## Test Partial
+
 # In[ ]:
 
 def partial_d(gf, fj, x, y, Fj=None) -> float:
@@ -547,7 +657,10 @@ def partial_d(gf, fj, x, y, Fj=None) -> float:
     return Fj(x, y) - expectation(gf, fj)
 
 
-# ## Test Partial
+# In[ ]:
+
+partial_d(gf, fj, x, y, Fj=None)
+
 
 # In[ ]:
 
@@ -557,17 +670,6 @@ def process_corpus(corpus, sep='//'):
     xs_, ys_ = zip(*linepairs)
     xs, ys = psplit(EasyList)(xs_), psplit(AugmentY)(ys_)
     return xs, ys 
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-Xa[:2]
-Ya[:2]
 
 
 # In[ ]:
@@ -583,12 +685,8 @@ Albany escaped embarrassingly unscathed .//NNP VBD RB JJ .'''
 
 # In[ ]:
 
-xs, ys = process_corpus(corpus)
-zs = zip(xs, ys)
-tgs = sorted({y for ybar in ys for y in ybar.aug})
-
-
-iscapped = lambda x: x and x[0].isupper()
+Xa[:2]
+Ya[:2]
 
 
 # In[ ]:
@@ -600,55 +698,58 @@ def mk_fx_tag(fx, tag):
     f.__doc__ = '{}(x[i]) and (y == {})'.format(fx, tag)
     return f
 
-def runFs(Fj, zs=zs):
-    return [Fj(x, y) for x, y in zs]
+
+
+def mkgf(x=None, corpus=corpus):
+    xs, ys = process_corpus(corpus)
+    zs = zip(xs, ys)
+    
+    def runFs(Fj, zs=zs):
+        return [Fj(x, y) for x, y in zs]
+
+    tgs = sorted({y for ybar in ys for y in ybar.aug})
+
+    iscapped = lambda x: x and x[0].isupper()
+    fs = dict(
+        seems_VBZ=mk_word_tag('seems', 'VBZ'),
+        ly_VBZ=lambda yp, y, x, i: x[i] and x[i].endswith('ly') and (y == 'RB'),
+        cap_NN=mk_fx_tag(iscapped, 'NN'),
+        cap_NNP=mk_fx_tag(iscapped, 'NNP'),
+        nocap_START=lambda yp, y, x, i: x[i] and not iscapped(x[i]) and (yp == START),
+    #     cap_NN=lambda yp, y, x, i: iscapped(x[i]) and (y == 'NN'),
+    )
+    Fs = z.valmap(FeatUtils.mk_sum, fs)
+
+    assert sum(runFs(Fs['ly_VBZ'])) == 3
+    assert sum(runFs(Fs['cap_NNP'])) == 8
+    assert sum(runFs(Fs['cap_NN'])) == 1
+    assert not sum(runFs(Fs['nocap_START']))
+    return G(fs=fs, tags=tgs, xbar=x or xs[-1], ws=mkwts1(fs, 1))
 
 
 # In[ ]:
 
-ys
+xs
 
 
 # In[ ]:
 
-tgs
+mkgf()
 
 
 # In[ ]:
 
-fs = dict(
-    seems_VBZ=mk_word_tag('seems', 'VBZ'),
-    ly_VBZ=lambda yp, y, x, i: x[i] and x[i].endswith('ly') and (y == 'RB'),
-    cap_NN=mk_fx_tag(iscapped, 'NN'),
-    cap_NNP=mk_fx_tag(iscapped, 'NNP'),
-    nocap_START=lambda yp, y, x, i: x[i] and not iscapped(x[i]) and (yp == START),
-#     cap_NN=lambda yp, y, x, i: iscapped(x[i]) and (y == 'NN'),
-)
-Fs = z.valmap(FeatUtils.mk_sum, fs)
-
-assert sum(runFs(Fs['ly_VBZ'])) == 3
-assert sum(runFs(Fs['cap_NNP'])) == 8
-assert sum(runFs(Fs['cap_NN'])) == 1
-assert not sum(runFs(Fs['nocap_START']))
+gf
 
 
 # In[ ]:
 
-d = Derp()
-d + 1
-d * 3
-1 + d
+gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
 
 
 # In[ ]:
 
 FeatUtils.bookend = False
-
-
-# In[ ]:
-
-
-# Fj = FeatUtils.mk_sum(ly)
 
 
 # In[ ]:
@@ -659,49 +760,6 @@ get_ipython().magic('prun -qD prof.prof partial_d(gf, fj, x, y, Fj=None)')
 # In[ ]:
 
 λ = 1
-α
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-fj = fs['ly_VBZ']
-Fj = Fs['ly_VBZ']
-ws = mkwts1(fs, const=1)
-
-for x, y in zs:
-    gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
-    if not Fj(x, y):  # TODO: is this always right?
-        continue
-    pder = partial_d(gf, fj, x, y, Fj=Fj)
-    wj0 = ws['ly_VBZ']
-    ws['ly_VBZ'] += λ * pder
-    print('wj: {} -> {}'.format(wj0, ws['ly_VBZ']))
-    print('pder: {:.2f}'.format(pder), Fj(x, y))
-    
-
-
-# In[ ]:
-
-zs
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-del Fj
-
-
-# In[ ]:
-
 fj = fs['ly_VBZ']
 # Fj = Fs['ly_VBZ']
 
@@ -722,7 +780,7 @@ def train_(zs: List[Tuple[EasyList, AugmentY]],
     return ws
 
 def train_j(zs: List[Tuple[EasyList, AugmentY]],
-          fjid='ly_VBZ', ws=ws, tol=.001, maxiter=10, vb=True, tgs=tgs):
+          fjid='ly_VBZ', ws=ws, tol=.01, maxiter=10, vb=True, tgs=tgs):
     ws1 = ws
     pt = testprint(vb)
     
@@ -751,7 +809,22 @@ train_j(zs, fjid='ly_VBZ', ws=ws)
 
 # In[ ]:
 
+get_ipython().magic('time ws1c = train(zs, fs, mkwts1(fs, 1), maxiter=1)')
+
+
+# In[ ]:
+
 get_ipython().magic('time ws1 = train(zs, fs, mkwts1(fs, 1), maxiter=1)')
+
+
+# In[ ]:
+
+ws1c
+
+
+# In[ ]:
+
+ws1
 
 
 # In[ ]:
@@ -850,46 +923,6 @@ fives
 # In[ ]:
 
 Series(map(len, X)).value_counts(normalize=0)
-
-
-# In[ ]:
-
-x
-
-
-# In[ ]:
-
-ybar
-
-
-# In[ ]:
-
-Fj(x, ybar)
-
-
-# In[ ]:
-
-partial_d(gf, fj, x, ybar)
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-AugmentY(AugmentY(yb))
-
-
-# In[ ]:
-
-yb
-
-
-# In[ ]:
-
-ss
 
 
 # ## Extra

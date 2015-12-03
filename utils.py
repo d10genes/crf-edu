@@ -18,7 +18,8 @@ funcdat.__new__.__defaults__ = (None,)
 
 
 class Derp(object):
-    "Dummy object that keeps returning self/False"
+    """Dummy object that keeps returning self/False to allow for flexible
+    feature functions that can go out of bounds on x"""
     def __call__(self, *a, **kw):
         return self
 
@@ -47,6 +48,21 @@ class Derp(object):
         return 0
 
 OutOfBounds = Derp()
+
+
+def memoize(f):
+    """Memoization decorator for a function taking one or more arguments.
+    http://code.activestate.com/recipes/578231-probably-the-fastest-memoization-decorator-in-the-/#c4
+    """
+    class memodict(dict):
+        def __getitem__(self, *key):
+            return dict.__getitem__(self, key)
+
+        def __missing__(self, key):
+            ret = self[key] = f(*key)
+            return ret
+
+    return memodict().__getitem__
 
 
 class EasyList(list):
@@ -140,7 +156,9 @@ def debugger(f):
 
 
 class G(funcdat):
-    """For dict of functions, corresponding weights, tags and xbar,
+    """
+    fs=None, tags=None, xbar: List=None, ws=None
+    For dict of functions, corresponding weights, tags and xbar,
     this class holds functions for generating g_i matrix, which sums all of the
     functions times weights for a given i with inputs
     """
