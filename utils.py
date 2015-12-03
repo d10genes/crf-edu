@@ -168,22 +168,6 @@ class G(funcdat):
         return self.Gi(*self.data._replace(i=i))
 
 
-def mkgf(ws, fs, tags, xbar):
-    tags = sorted(tags)
-
-    def gf(i):
-        # @debugger
-        def gfi(yp, y):
-            return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
-        # print(gfi.base_f.__dict__)
-        gfi.tags = tags  # gfi.base_f.tags =
-        gfi.i = i  # gfi.base_f.i =
-        return gfi
-    gf.xbar = xbar
-    gf.tags = tags
-    return gf
-
-
 def getmat(gf: FuncSums, generic_names=False) -> Any:
     "((yp, y) -> float) -> (Df[Yprev x Y] -> float)"
     tags = gf.tags
