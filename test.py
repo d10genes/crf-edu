@@ -100,7 +100,7 @@ def no_test_getu2(get_u, mlp):
     no_test_getu2.gf2 = gf2
     no_test_getu2.fs = fs
     u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
-    # print(u2)
+
     assert (u2.idxmax() == [START, 'TAG1', 'TAG1', END]).all()
     assert u2.iloc[:, -1].max() == 5
     assert mlp(i2) == ['START', 'TAG1', 'TAG1', 'END']
@@ -108,7 +108,7 @@ def no_test_getu2(get_u, mlp):
 
 
 def no_test_getu3(get_u, mlp):
-    tgs = [START, 'TAG1', 'PENULTAG', END]
+    tgs = [START, 'DUMMY', 'TAG1', 'TAG2', 'PENULTAG', END]
     fs = {
         'eq_wd1': mk_word_tag('wd1', 'TAG1'),
         # 'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END),
@@ -117,6 +117,7 @@ def no_test_getu3(get_u, mlp):
         'start_zero': lambda yp, y, x, i: (y == START) and (i == 0),
         'end_nonend': lambda yp, y, x, i: (y == END) and (i != (len(x) + 1)),
         'end_end': lambda yp, y, x, i: (y == END) and (i == (len(x) + 1)),
+        't1_t2': lambda yp, y, x, i: (yp == 'TAG1') and (y == 'TAG2'),
     }
     ws = z.merge(mkwts1(fs), {'pre_endy': 3, 'start_nonzero': -1, 'end_nonend': -1})
     x2 = EasyList(['wd1', 'pre-end', 'whatevs'])
@@ -124,5 +125,6 @@ def no_test_getu3(get_u, mlp):
     no_test_getu3.gf2 = gf2
     no_test_getu3.fs = fs
     u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
-    assert mlp(i2) == ['START', 'TAG1', 'PENULTAG', 'PENULTAG', 'END']
+
+    assert mlp(i2) == ['START', 'TAG1', 'TAG2', 'PENULTAG', 'END']
     return u2, i2
