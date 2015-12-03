@@ -1,4 +1,4 @@
-from utils import (EasyList, OutOfBounds, justargs, numargs, const, fs, mkgf,
+from utils import (EasyList, OutOfBounds, justargs, numargs, const, fs,
                    getmat, G, START, END, mk_word_tag, mkwts1)
 import toolz.curried as z
 from pandas.util.testing import assert_frame_equal
@@ -45,7 +45,7 @@ def test_mats():
     wst = z.valmap(const(1), fs)
 
     testfs = dict(cap_nnp=fs['cap_nnp'])
-    gft = mkgf(wst, testfs, stags, xt)
+    gft = G(fs=testfs, tags=stags, xbar=xt, ws=wst)
     resmat = getmat(gft(0), generic_names=True)
 
     assert all(resmat.NNP == 1)
@@ -59,15 +59,12 @@ def test_mats_2_args():
     stags = ['NNP', 'DT', 'IN', 'DERP']
     wst = z.valmap(const(1), fs)
 
-    gft = mkgf(wst, testfs, stags, xt)
-    gftb = G(fs=testfs, tags=stags, xbar=xt, ws=wst)
-    # m0b = gftb(0).mat
+    gft = G(fs=testfs, tags=stags, xbar=xt, ws=wst)
     m0 = getmat(gft(0), generic_names=True)
     m1 = getmat(gft(1), generic_names=True)
 
     # First position should be the same
     assert all(m0.NNP == 1)
-    assert all(gftb(0).mat.NNP == 1)
     assert (m0.drop('NNP', axis=1) == 0).all().all()
 
     # Second should get additional point from Mr. feature in position
@@ -86,7 +83,7 @@ def no_test_getu1(get_u, mlp):
     ytpred = [START, 'TAG1', END]
     x = EasyList(['wd1'])
 
-    gf = mkgf(mkwts1(fs), fs, tgs, x)
+    gf = G(fs=fs, tags=tgs, xbar=x, ws=mkwts1(fs))
     u, i = get_u(gf=gf, collect=True)
     assert (u.idxmax() == ytpred).all()
     assert u.iloc[:, -1].max() == 2
@@ -98,7 +95,7 @@ def no_test_getu2(get_u, mlp):
     fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1'),
           'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)}
     ws = z.merge(mkwts1(fs), {'pre_endx': 3})
-    gf2 = mkgf(ws, fs, tgs, x2)
+    gf2 = G(fs=fs, tags=tgs, xbar=x2, ws=ws)
     assert all(getmat(gf2(3))[END] == 3)
     no_test_getu2.gf2 = gf2
     no_test_getu2.fs = fs
@@ -123,7 +120,7 @@ def no_test_getu3(get_u, mlp):
     }
     ws = z.merge(mkwts1(fs), {'pre_endy': 3, 'start_nonzero': -1, 'end_nonend': -1})
     x2 = EasyList(['wd1', 'pre-end', 'whatevs'])
-    gf2 = mkgf(ws, fs, tgs, x2)
+    gf2 = G(fs=fs, tags=tgs, xbar=x2, ws=ws)
     no_test_getu3.gf2 = gf2
     no_test_getu3.fs = fs
     u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
