@@ -5,8 +5,10 @@ import re
 from typing import Callable, List, Dict, TypeVar, Any  # , Tuple
 import toolz.curried as z
 from pandas import DataFrame  # type: ignore
+from operator import methodcaller as mc
 from collections import namedtuple
 # from collections import OrderedDict
+from py3k_imports import map
 
 T = TypeVar('T')
 START = 'START'
@@ -107,6 +109,14 @@ class AugmentY(object):
         return 'Aug' + repr(self._orig)
 
 
+def process_corpus(corpus, sep='//'):
+    psplit = lambda f: (lambda xs: map(z.comp(f, str.split), xs))
+    linepairs = z.comp(z.map(mc('split', sep)), str.splitlines)(corpus)
+    xs_, ys_ = zip(*linepairs)
+    xs, ys = psplit(EasyList)(xs_), psplit(AugmentY)(ys_)
+    return xs, ys
+
+
 class FuncSums(object):
     def __call__(self, y: str, x: str) -> float:  # #type: Callable[[str, str], float]
         pass
@@ -155,24 +165,29 @@ def debugger(f):
     return debug
 
 
-class G(funcdat):
+class G(object):
     """
     fs=None, tags=None, xbar: List=None, ws=None
     For dict of functions, corresponding weights, tags and xbar,
     this class holds functions for generating g_i matrix, which sums all of the
     functions times weights for a given i with inputs
     """
-    def __new__(cls, fs=None, tags=None, xbar: List=None, ws=None):
-        # xbar_ = xbar if isinstance(xbar, EasyList) else EasyList(xbar)
-        # self.data = funcdat(fs=fs, tags=sorted(tags), xbar=xbar_, ws=ws or mkwts1(fs))
-        xbar_ = xbar if isinstance(xbar, EasyList) else EasyList(xbar)
-        self = super().__new__(cls, fs, sorted(tags), xbar_, ws)
-        return self
+    def __init__(self, fs=None, tags=None, xbar: List=None, ws=None, fdat=None):
+        assert (fs and tags and xbar) or fdat, 'Either fdat or all the rest required'
+        if not fdat:
+            xbar_ = xbar if isinstance(xbar, EasyList) else EasyList(xbar)
+            fdat = funcdat(fs=fs, tags=sorted(tags), xbar=xbar_, ws=ws or mkwts1(fs))
+        self._data = fdat
 
-    def __init__(self, *args, **kwargs):
-        # xbar_ = xbar if isinstance(xbar, EasyList) else EasyList(xbar)
-        # self.data = funcdat(fs=fs, tags=sorted(tags), xbar=xbar_, ws=ws or mkwts1(fs))
-        self.data = funcdat(*args, **kwargs)
+    def __repr__(self):
+        return 'G' + repr(self._data)[7:]
+
+    def _replace(self, **kwds):
+        res = self._data._replace(**kwds)
+        return G(fdat=res)
+
+    def __getattr__(self, attr):
+        return getattr(self._data, attr)
 
     class Gi(funcdat):
         def __call__(self, yp, y):
@@ -183,7 +198,7 @@ class G(funcdat):
             return getmat(self)
 
     def __call__(self, i):
-        return self.Gi(*self.data._replace(i=i))
+        return self.Gi(*self._data._replace(i=i))
 
 
 def getmat(gf: FuncSums, generic_names=False) -> Any:

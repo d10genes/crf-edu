@@ -39,17 +39,19 @@ def test_numargs():
     assert numargs(f2) == 2
 
 
-def test_mats():
+def test_mats_replace():
     xt = 'Hi this has Two capped words'.split()
     stags = ['NNP', 'DT', 'IN', 'DERP']
     wst = z.valmap(const(1), fs)
 
     testfs = dict(cap_nnp=fs['cap_nnp'])
     gft = G(fs=testfs, tags=stags, xbar=xt, ws=wst)
-    resmat = getmat(gft(0), generic_names=True)
-
+    resmat = gft(1).mat
     assert all(resmat.NNP == 1)
     assert (resmat.drop('NNP', axis=1) == 0).all().all()
+    gft2 = gft._replace(ws={'cap_nnp': 2})
+    assert all(gft2(1).mat.NNP == 2)
+
     return 0
 
 
@@ -60,8 +62,8 @@ def test_mats_2_args():
     wst = z.valmap(const(1), fs)
 
     gft = G(fs=testfs, tags=stags, xbar=xt, ws=wst)
-    m0 = getmat(gft(0), generic_names=True)
-    m1 = getmat(gft(1), generic_names=True)
+    m0 = getmat(gft(1), generic_names=True)
+    m1 = getmat(gft(2), generic_names=True)
 
     # First position should be the same
     assert all(m0.NNP == 1)
@@ -96,7 +98,7 @@ def no_test_getu2(get_u, mlp):
           'pre_endx': lambda yp, y, x, i: (x[i - 1] == 'pre-end') and (y == END)}
     ws = z.merge(mkwts1(fs), {'pre_endx': 3})
     gf2 = G(fs=fs, tags=tgs, xbar=x2, ws=ws)
-    assert all(getmat(gf2(3))[END] == 3)
+    assert all(gf2(3).mat[END] == 3)
     no_test_getu2.gf2 = gf2
     no_test_getu2.fs = fs
     u2, i2 = get_u(gf=gf2, collect=True, verbose=0)
