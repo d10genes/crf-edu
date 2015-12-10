@@ -7,3 +7,4 @@ flake8
 mypy-lang
 pytest
 snakeviz
+ipdb
