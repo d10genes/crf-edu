@@ -1,18 +1,8 @@
-from utils import (EasyList, OutOfBounds, justargs, numargs, const, fs,
-                   getmat, G, START, END, mk_word_tag, mkwts1)
+from crf import (justargs, numargs, const, fs, fsums,
+                 getmat, G, mk_word_tag, mkwts1)
+from utils import OutOfBounds, EasyList, START, END, todot
 import toolz.curried as z
 from pandas.util.testing import assert_frame_equal
-
-
-# enumx = lambda x: range(1, len(x) + 1)
-# enumxy = z.comp(enumerate, enumx)
-#
-#
-# def test_enumxy():
-#     x = [1, 2, 3, 4]
-#     y = [START, 1, 2, 3, 4, END]
-#     assert all([(x[i] == y[j]) for i, j in enumxy(x)])
-#     assert [y[i] for i in enumx(x)] == x
 
 
 def test_easylist():
@@ -79,6 +69,7 @@ def test_mats_2_args():
     return gft
 
 
+# Test argmax_y
 def no_test_getu1(get_u, mlp):
     tgs = [START, 'TAG1', END]
     fs = {'eq_wd1': mk_word_tag('wd1', 'TAG1')}
@@ -109,7 +100,7 @@ def no_test_getu2(get_u, mlp):
     return u2, i2
 
 
-def no_test_getu3(get_u, mlp):
+def mk_fst():
     tgs = [START, 'DUMMY', 'TAG1', 'TAG2', 'PENULTAG', END]
     fs = {
         'eq_wd1': mk_word_tag('wd1', 'TAG1'),
@@ -121,8 +112,13 @@ def no_test_getu3(get_u, mlp):
         'end_end': lambda yp, y, x, i: (y == END) and (i == (len(x) + 1)),
         't1_t2': lambda yp, y, x, i: (yp == 'TAG1') and (y == 'TAG2'),
     }
-    ws = z.merge(mkwts1(fs), {'pre_endy': 3, 'start_nonzero': -1, 'end_nonend': -1})
     x2 = EasyList(['wd1', 'pre-end', 'whatevs'])
+    return fs, tgs, x2
+
+
+def no_test_getu3(get_u, mlp):
+    fs, tgs, x2 = mk_fst()
+    ws = z.merge(mkwts1(fs), {'pre_endy': 3, 'start_nonzero': -1, 'end_nonend': -1})
     gf2 = G(fs=fs, tags=tgs, xbar=x2, ws=ws)
     no_test_getu3.gf2 = gf2
     no_test_getu3.fs = fs
@@ -130,3 +126,33 @@ def no_test_getu3(get_u, mlp):
 
     assert mlp(i2) == ['START', 'TAG1', 'TAG2', 'PENULTAG', 'END']
     return u2, i2
+
+
+def test_functions():
+    f = todot(fsums)
+    split_args_ = lambda *x: zip(*map(str.split, x))  # ['a 1', 'b 2'] -> [('a', 'b'), ('1', '2')]
+    split_args = lambda f: (lambda *a: f(*split_args_(*a)))  # decorate f by preprocessing args with split_args_
+    g = todot(z.valmap(split_args, fsums))
+    x = 'However , Mr. Dillow said'.split()
+    y = ['RB', ',', 'NNP', 'NNP', 'VBD']
+    y1 = ['RB', ',']
+    y2 = ['VBD']
+    # y = y1 + ['NNP', 'NNP'] + y2
+    assert g.post_mr('However RB', ', ,', 'Mr. NNP', 'Dillow NNP', 'said VBD') == 1
+    assert f.post_mr(*split_args_('However RB', ', ,', 'Mr. NNP', 'Dillow NNP', 'said VBD')) == 1
+    assert f.post_mr(x, y) == 1
+    assert f.post_mr(x, y1 + ['NNPs', 'NNP'] + y2) == 0
+    assert f.post_mr(x, y1 + ['NNP', 'NNPs'] + y2) == 0
+    assert f.cap_nnp(x, y) == 2
+    assert f.cap_nnp([' ', 'Mr.', 'low', 'Up'],
+                     [' ', 'NNP', 'NNP', ' ']) == 1
+    assert f.dt_in('derp', ['DT', 'IN']) == 1
+    assert f.dt_in('derp', ['DT', 'INs']) == 0
+    assert f.dig_cd(['123', 'hi', 'the'], ['CD', 'INs', 'TAG']) == 1
+    assert f.dig_cd(['123', '1.23', 'the'], ['CD', 'CD', 'TAG']) == 2
+    assert f.wd_to(['to', '1.23', 'the'], ['TO', 'CD', 'TAG']) == 1
+    assert f.last_nn(['to', '1.23', 'the'], ['TO', 'CD', 'TAG']) == 0
+    assert f.last_nn(['to', '1.23', 'the'], ['TO', 'CD', 'NN']) == 1
+    assert f.fst_dt(['to', '1.23', 'the'], ['DT', 'CD', 'NN']) == 1
+    assert f.fst_dt(['to', '1.23', 'the'], ['DT2', 'CD', 'NN']) == 0
+    assert f.fst_nnp(['to', '1.23', 'ddd'], ['NNP', 'CD', 'DDD']) == 1
