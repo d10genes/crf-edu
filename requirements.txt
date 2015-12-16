@@ -8,3 +8,5 @@ mypy-lang
 pytest
 snakeviz
 ipdb
+voluptuous
+bitarray
