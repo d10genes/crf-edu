@@ -1,6 +1,6 @@
 from crf import (justargs, numargs, const, fs, fsums,
-                 getmat, G, mk_word_tag, mkwts1)
-from utils import OutOfBounds, EasyList, START, END, todot
+                 getmat, G, mk_word_tag, mkwts1, FeatUtils)
+from utils import OutOfBounds, EasyList, START, END, todot, process_corpus
 import toolz.curried as z
 from pandas.util.testing import assert_frame_equal
 
@@ -156,3 +156,58 @@ def test_functions():
     assert f.fst_dt(['to', '1.23', 'the'], ['DT', 'CD', 'NN']) == 1
     assert f.fst_dt(['to', '1.23', 'the'], ['DT2', 'CD', 'NN']) == 0
     assert f.fst_nnp(['to', '1.23', 'ddd'], ['NNP', 'CD', 'DDD']) == 1
+
+
+corpus = '''Nothing seems hard here .//NN VBZ JJ RB .
+The reason is cost .//DT NN VBZ NN .
+Terms were n't disclosed .//NNS VBD RB VBN .
+Mr. Juliano really really thinks so .//NNP NNP RB RB VBZ RB .
+Mr. Bill seems dead .//NNP NNP VBZ JJ .
+Young & Rubicam 's Pact//NNP CC NNP POS NNP
+Albany escaped embarrassingly unscathed .//NNP VBD RB JJ .'''
+
+corp3 = '''Nothing seems hard//NN VBZ JJ
+The reason is//VBZ NN VBZ
+Terms were n't//UNK UNK RB
+Mr. Juliano really really thinks//NNP NNP RB
+Mr. Bill seems//NNP NNP VBZ
+Young & Rubicam//NNP VBZ NNP
+Albany escaped embarrassingly//NNP UNK RB'''
+
+
+def mk_fx_tag(fx, tag):
+    def f(yp_, y, x, i):
+        return x[i] and fx(x[i]) and (y == tag)
+    f.__name__ = '{}(x)_{}'.format(fx, tag)
+    f.__doc__ = '{}(x[i]) and (y == {})'.format(fx, tag)
+    return f
+
+
+def mkgf(x=None, corpus=corpus):
+    xs, ys = process_corpus(corpus)
+    zs = zip(xs, ys)
+    tgs = sorted({y for ybar in ys for y in ybar.aug})
+
+    iscapped = lambda x: x and x[0].isupper()
+    fs = dict(
+        seems_VBZ=mk_word_tag('seems', 'VBZ'),
+        ly_VBZ=lambda yp, y, x, i: x[i] and x[i].endswith('ly') and (y == 'RB'),
+        cap_NN=mk_fx_tag(iscapped, 'NN'),
+        cap_NNP=mk_fx_tag(iscapped, 'NNP'),
+        nocap_START=lambda yp, y, x, i: x[i] and not iscapped(x[i]) and (yp == START),
+        # cap_NN=lambda yp, y, x, i: iscapped(x[i]) and (y == 'NN'),
+    )
+    return G(fs=fs, tags=tgs, xbar=x or xs[-1], ws=mkwts1(fs, 1)), ys, list(zs)
+
+
+def test_corp():
+    gf, _, zs = mkgf(x=None, corpus=corpus)
+    Fs = z.valmap(FeatUtils.mk_sum, gf.fs)
+
+    def runFs(Fj, zs=zs):
+        return [Fj(x, y) for x, y in zs]
+
+    assert sum(runFs(Fs['ly_VBZ'])) == 3
+    assert sum(runFs(Fs['cap_NNP'])) == 8
+    assert sum(runFs(Fs['cap_NN'])) == 1
+    assert not sum(runFs(Fs['nocap_START']))
