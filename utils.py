@@ -29,6 +29,21 @@ def todot(d: Dict[str, T]):
     return d2
 
 
+def s2df(xs: List[Series]) -> DataFrame:
+    return DataFrame({i: s for i, s in enumerate(xs)})
+
+
+def debugu(ufunc, gmat, uadd, gf, pt, k):
+    "Print some debug info for argmax calculation"
+    ufunc.gmat = gmat
+    ufunc.uadd = uadd
+    pt('\n', k)
+    pt(gf.xbar[k], )
+    pt(gmat)
+    pt('\nuadd')
+    pt(uadd)
+
+
 def eq(x):
     return lambda y: x == y
 

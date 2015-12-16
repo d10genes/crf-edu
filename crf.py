@@ -33,15 +33,18 @@ def const(x: T) -> Callable[..., T]:
 
 
 def numargs(f: Callable[..., Any]) -> int:
-    argspec = inspect.getargspec(f)
-    args, defs = argspec.args, (argspec.defaults or [])
-    nargs, ndefs = len(args), len(defs)
-    return nargs - ndefs
+    params = inspect.signature(f).parameters.values()
+    return len([p for p in params if p.default == inspect._empty])
+    # argspec = inspect.getargspec(f)
+    # args, defs = argspec.args, (argspec.defaults or [])
+    # nargs, ndefs = len(args), len(defs)
+    # return nargs - ndefs
 
 
 def justargs(f: Callable[..., Any]) -> List[str]:
     "Return arg names, ignoring those with defaults"
-    return inspect.getargspec(f).args[:numargs(f)]
+    return list(inspect.signature(f).parameters.keys())[:numargs(f)]
+    # return inspect.getargspec(f).args[:numargs(f)]
 
 
 def debugger(f):
@@ -84,7 +87,7 @@ class G(object):
 
     class Gi(funcdat):
         def __call__(self, yp, y):
-            return sum(f(yp, y, self.xbar, self.i) * self.ws[fn] for fn, f in self.fs.items())
+            return sum([f(yp, y, self.xbar, self.i) * self.ws[fn] for fn, f in self.fs.items()])
 
         @property
         def mat(self):
@@ -172,9 +175,9 @@ class Fs():
         return y == 'NNP' and x[i][0].isupper()
 
     def dig_cd(yp_, y, x, i, p=re.compile(r'[\d\.]+')):
-        return y == 'CD' and bool(p.match(x[i]))
+        return y == 'CD' and x[i] and bool(p.match(x[i]))
 
-    def dt_in(yp, y, x_, i):
+    def dt_in(yp: 'DT', y: 'IN', x_, i):
         return (yp == 'DT') and (y == 'IN')
 
     wd_to = mk_word_tag('to', 'TO')
@@ -185,9 +188,9 @@ class Fs():
     wd_the = mk_word_tag('the', 'DT')
     wd_and = mk_word_tag('and', 'CC')
 
-    fst_dt = lambda yp, y, x, i: (yp == START) and (y == 'DT')
-    fst_nnp = lambda yp, y, x, i: (yp == START) and (y == 'NNP')
-    last_nn = lambda yp, y, x, i: (yp == 'NN') and (y == END)
+    fst_dt = lambda yp, y, x_, i: (yp == START) and (y == 'DT')
+    fst_nnp = lambda yp, y, x_, i: (yp == START) and (y == 'NNP')
+    last_nn = lambda yp, y, x_, i: (yp == 'NN') and (y == END)
 
 
 fs = FeatUtils.get_funcs(Fs)

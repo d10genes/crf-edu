@@ -1,7 +1,8 @@
 
 # coding: utf-8
 
-# wo crf
+# # Linear chain CRFs
+# This is less of a blog post, and more of my annotated progress in implementing CRF's based on Charles Elkan's very excellent [video](http://videolectures.net/cikm08_elkan_llmacrf/) and [pdf](http://cseweb.ucsd.edu/~elkan/250Bwinter2012/loglinearCRFs.pdf) tutorials in order to have a better understanding of log-linear models.
 
 # In[ ]:
 
@@ -35,6 +36,13 @@ if sys.version_info.major > 2:
 
 # In[ ]:
 
+import utils; reload(utils); from utils import *
+import crf; reload(crf); from crf import *
+FeatUtils.bookend = False
+
+
+# In[ ]:
+
 Series.__matmul__ = Series.dot
 DataFrame.__matmul__ = DataFrame.dot
 
@@ -42,74 +50,9 @@ from matmul_new import test_matmul
 test_matmul()
 
 
-# ## Load data
-
-# In[ ]:
-
-with open('data/pos.train.txt','r') as f:
-    txt = f.read() #
-
-
-# In[ ]:
-
-import utils; reload(utils); from utils import *
-# fs = AttrDict(fs)
-# fsums = AttrDict(fsums)
-
-
-# In[ ]:
-
-sents = filter(None, [zip(*[e.split() for e in sent.splitlines()]) for sent in txt[:].split('\n\n')])
-X = map(itg(0), sents)
-Y_ = map(itg(1), sents)
-Xa = map(EasyList, X)
-Ya = map(AugmentY, Y_)
-tags = sorted({tag for y in Y_ for tag in y if tag.isalpha()})
-
-
-# In[ ]:
-
-txt[:100]
-
-
-# In[ ]:
-
-# common bigrams
-bigs = defaultdict(lambda: defaultdict(int))
-
-for y in Y_:
-    for t1, t2 in zip(y[:-1], y[1:]):
-        bigs[t1][t2] += 1
-        
-bigd = DataFrame(bigs).fillna(0)[tags].ix[tags]
-# bigd
-# sns.clustermap(bigd, annot=1, figsize=(16, 20), fmt='.0f')
-
-
-# In[ ]:
-
-wcts_all = defaultdict(Counter)
-for xi, yi in zip(X, Y_):
-    for xw, yw in zip(xi, yi):
-        wcts_all[xw][yw] += 1
-
-
-# In[ ]:
-
-wcts = z.valfilter(lambda x: sum(x.values()) > 4, wcts_all)
-
-
-# In[ ]:
-
-' '.join(y)
-
-
-# In[ ]:
-
-' '.join(tags)
-
-
-# ## Algo
+# ## Probabilistic model
+# 
+# Given a sequence $\bar x$, the linear chain CRF model gives the probability of a corresponding sequence $\bar y$ as follows, for feature functions $F_j$, where each $F_j$ is a sum of a corresponding lower level feature function $f_j$ over every element of the sequence:
 # 
 # $$
 # p(\bar y | \bar x;w) =
@@ -121,30 +64,29 @@ wcts = z.valfilter(lambda x: sum(x.values()) > 4, wcts_all)
 # F_j(\bar x, \bar y) = 
 # \sum_{i=1}^n f_j(y_{i-1}, y_i, \bar x, i)
 # $$
+# 
+# $Z(\bar x, w)$ is the partition function, that sums the probabilities of all possible sequences to normalize the probability:
+# 
+# $$
+# Z(x, w) = \sum_{y' \in Y} \exp \sum_{j=1} ^J w_j F_j (x, y').
+# $$
 
 # ### Argmax
 # 
-# Get $\text{argmax}_{\bar y} p(\bar y | \bar x;w)$. Since the scoring function only depends on 2 (consecutive in this situation) elements of $\bar y$, argmax can be computed in polynomial time with a table ($\in ℝ^{|Y| \times |y|}$). $U_{ij}$ is the highest score for sequences ending in $y_i$ at position $y_j$.
+# Computing the most likely sequence $\text{argmax}_{\bar y} p(\bar y | \bar x;w)$ naively involves iterating over every possible sequence that can be built from the tag vocabulary, rendering the computation impractical for even medium sized tag-spaces.
+# 
+# Since the scoring function only depends on 2 (consecutive in this situation) elements of $\bar y$, argmax can be computed in polynomial time with a table ($\in ℝ^{|Y| \times |y|}$). $U_{ij}$ is the highest score for sequences ending in $y_i$ at position $y_j$. It is useful to compute the most likely sequence in terms of $g_i$, which sums over all lower level functions $f_j$ evaluated at position $i$:
 
 # $$
 # g_i(y_ {i-1}, y_i) = \sum^J_{j=1} w_j f_j (y_ {i-1}, y_i, \bar x, i)
 # $$
 
-#     # def gf(ws, yp, y, xbar, i):
-#     #     return sum(f(yp, y, xbar, i) * ws[fn] for fn, f in fs.items())
-# 
-#     x_ = ['Mr.', 'Doo', 'in', 'a', 'circus']
-#     y_ = ['NNP', 'NNP', 'IN', 'DT', 'IN']
-# 
-#     mkwts1 = lambda fs: z.valmap(const(1), fs)
-#     ws = mkwts1(fs)
-# 
-#     gf = mkgf(ws, fs, tags, x_)
-#     # gf = mkgf(ws, fs, tags, ['Mr.', 'Happy', 'derp'])
-
 # ### Generate maximum score matrix U
+# 
 # $$U(k, v) = \max_u [U(k-1, u) + g_k(u,v)]$$
 # $$U(1, vec) = \max_{y_0} [U(0, y_0) + g_k(y_0,vec)]$$
+# 
+# This implementation is pretty slow, because every low level feature function is evaluated at each $i, y_{i-1}$ and $y_i$, for each feature function $f_j$ ($\mathcal{O}(m^2 n J )$ where $J=$ number of feature functions, $m=$ number of possible tags and $n=$ length of sequence $\bar y$). Also, using python functions in the inner-loop is slow. This could be significantly reduced if the feature functions could be arranged such that they would only be evaluated for the relevant combinations of $x_i, y_{i-1}$ and $y_i$. I started arranging them in this way in `dependency.py`, but the complexity got a bit too unwieldy for a toy educational project. 
 
 # In[ ]:
 
@@ -161,32 +103,8 @@ def init_score(tags, tag=START, sort=True):
     return i
 
 
-#     f = fs2['eq_wd1']
-#     f('START', 'TAG1', xt2, 2)
-# 
-#     F = Fs2['eq_wd2']
-#     F(xt2, yt2)
-
 # In[ ]:
 
-import utils; reload(utils); from utils import *
-import crf; reload(crf); from crf import *
-
-
-# In[ ]:
-
-def s2df(xs: List[Series]) -> DataFrame:
-    return DataFrame({i: s for i, s in enumerate(xs)})
-
-def debugu(ufunc, gmat, uadd, gf, pt, k):
-    ufunc.gmat = gmat
-    ufunc.uadd = uadd
-    pt('\n', k)
-    pt(gf.xbar[k], )
-    pt(gmat)
-    pt('\nuadd')
-    pt(uadd)
-    
 def get_u(k: int=None, gf: "int -> (Y, Y') -> float"=None, collect=True, verbose=False) -> '([max score], [max ix])':
     """Recursively build up g_i matrices bottom up, adding y-1 score
     to get max y score. Returns score.
@@ -237,16 +155,6 @@ def mlp(idxs, i: int=None, tagsrev: List[Y]=[END]) -> List[Y]:
 
 # In[ ]:
 
-import test; reload(test); from test import no_test_getu1, no_test_getu2, no_test_getu3, mk_fst
- 
-no_test_getu1(get_u, mlp)
-no_test_getu2(get_u, mlp)
-no_test_getu3(get_u, mlp)
-None
-
-
-# In[ ]:
-
 def predict(xbar=None, fs=None, tags=None, ws=None, gf=None):
     "Return argmax_y with corresponding score"
     if gf is None:
@@ -256,9 +164,20 @@ def predict(xbar=None, fs=None, tags=None, ws=None, gf=None):
     path = mlp(i)
     return path, u.ix[END].iloc[-1]
     
-path2, score2 = predict(xbar=EasyList(['wd1', 'pre-end', 'whatevs']),
-                        fs=no_test_getu3.fs,
-                        tags=[START, 'TAG1', 'PENULTAG', END])
+# path2, score2 = predict(xbar=EasyList(['wd1', 'pre-end', 'whatevs']),
+#                         fs=no_test_getu3.fs,
+#                         tags=[START, 'TAG1', 'PENULTAG', END])
+
+
+# In[ ]:
+
+import test; reload(test); from test import *
+ 
+no_test_getu1(get_u, mlp)
+no_test_getu2(get_u, mlp)
+no_test_getu3(get_u, mlp)
+
+test_corp()
 
 
 # ##Gradient
@@ -267,7 +186,7 @@ path2, score2 = predict(xbar=EasyList(['wd1', 'pre-end', 'whatevs']),
 # 
 # 
 # ### Forward-backward algorithm
-# - Partition function $Z(\bar x, w) = \sum_{\bar y} \exp \sum _{j=1} ^ J w_j F_j (\bar x, \bar y) $ can be intractible; forward-backward vectors can make it easier to compute
+# - Partition function $Z(\bar x, w) = \sum_{\bar y} \exp \sum _{j=1} ^ J w_j F_j (\bar x, \bar y) $ can be intractible if calculated naively (similar to argmax); forward-backward vectors can make it easier to compute
 #    
 # $$\alpha (k + 1,v) = \sum_u \alpha (k,u)[\exp g_{k+1}(u,v)] \in ℝ^m$$
 # $$\alpha (0,y) = I(y=START)$$
@@ -288,60 +207,6 @@ path2, score2 = predict(xbar=EasyList(['wd1', 'pre-end', 'whatevs']),
 
 # In[ ]:
 
-aa = mk_asum(gf)
-
-
-# In[ ]:
-
-# lcsum, ssum, ak, np.exp(gnext)
-aa(2)
-
-
-# In[ ]:
-
-get_ipython().magic('pinfo gnext.mul')
-
-
-# In[ ]:
-
-gx = np.exp(gnext)
-side_by_side(gx, ak)
-
-
-# In[ ]:
-
-gx.mul()
-
-
-# In[ ]:
-
-ak
-
-
-# In[ ]:
-
-nx = np.exp(gnext).mul(ak, axis=0).sum(axis=0)
-nx
-# .sum(axis=0)
-
-
-# In[ ]:
-
-nx.sum(axis=0)
-
-
-# In[ ]:
-
-np.exp(gnext).mul(ak).sum()
-
-
-# In[ ]:
-
-ak
-
-
-# In[ ]:
-
 def mk_asum(gf, vb=False):
     n = len(gf.xbar)
     tags = gf.tags
@@ -349,7 +214,6 @@ def mk_asum(gf, vb=False):
     
     @memoize
     def get_asum(knext=None):
-#         global ak, gnext
         if knext is None:
             # The first use of the forward vectors is to write
             return get_asum(n+1)
@@ -364,12 +228,10 @@ def mk_asum(gf, vb=False):
         if vb:
             names = 'exp[g{k1}] g{k1} a_{k}'.format(k1=knext, k=k).split()
             p(side_by_side(np.exp(gnext), gnext, ak, names=names))
-#         lcsum = Series([sum([ak[u] * np.exp(gnext.loc[u, v]) for u in tags]) for v in tags], index=tags)
-        ssum = np.exp(gnext).mul(ak, axis=0).sum(axis=0)
-#         assert all(lcsum == ssum)
-        return ssum
-        return lcsum
-#         return Series([sum([ak[u] * np.exp(gnext.loc[u, v]) for u in tags]) for v in tags], index=tags)
+        # expsum = Series([sum([ak[u] * np.exp(gnext.loc[u, v]) for u in tags]) for v in tags], index=tags)
+        # vectorizing is much faster:
+        expsum = np.exp(gnext).mul(ak, axis=0).sum(axis=0)
+        return expsum
     return get_asum  #(knext, vb=vb)
 
 
@@ -391,25 +253,10 @@ def mk_bsum(gf, vb=False):
         if vb:
             names = ['exp[g{}]'.format(k+1), 'g{}'.format(k+1), 'b_{}'.format(k+1)]
             p(side_by_side(np.exp(gnext), gnext, bnext, names=names))
-#         lsum = Series([sum([np.exp(gnext.loc[u, v]) * bnext[v] for v in tags]) for u in tags], index=tags)
-        ssum = np.exp(gnext).mul(bnext, axis=1).sum(axis=1)
-        return ssum
+        # expsum = Series([sum([np.exp(gnext.loc[u, v]) * bnext[v] for v in tags]) for u in tags], index=tags)
+        expsum = np.exp(gnext).mul(bnext, axis=1).sum(axis=1)
+        return expsum
     return get_bsum
-
-
-# In[ ]:
-
-get_ipython().magic("timeit expectation2(gf, gfsub.fs['ly_VBZ'])")
-
-
-# In[ ]:
-
-get_ipython().magic("timeit expectation2(gf, gfsub.fs['ly_VBZ'])")
-
-
-# In[ ]:
-
-get_ipython().magic("timeit expectation2(gf, gfsub.fs['ly_VBZ'])")
 
 
 # In[ ]:
@@ -439,7 +286,17 @@ test_fwd_bkwd()
 
 # ### Calculate expected value of feature function
 # Weighted by conditional probability of $y'$ given $x$
-# $$E_{y' \sim  p(y | x;w) } [F_j(x,y')]$$
+# 
+# $$
+# E_{\bar y \sim  p(\bar y | \bar x;w) } [F_j(\bar  x, \bar y)] =
+# \sum _{i=1} ^n \sum _{y_{i-1}} \sum _{y_i}
+#     f_j(y_{i-1}, y_i, \bar x, i)
+#     \frac {\alpha (i-1, y_{i-1})
+#     [\exp g_i(y_{i-1}, y_i)]
+#     \beta(y_i, i)
+#     }
+#     {Z(\bar x, w)}
+# $$
 
 # In[ ]:
 
@@ -451,31 +308,8 @@ def sdot(s1: Series, s2: Series):
 
 # In[ ]:
 
-# def expectation(gf, fj):
-#     tags = gf.tags
-#     n = len(gf.xbar)
-#     ss = 0
-#     asummer = mk_asum(gf)
-#     bsummer = mk_bsum(gf)
-    
-#     za = partition(asummer=asummer)
-    
-#     for i in range(1, n + 2):
-#         gfix = np.exp(gf(i).mat)
-#         alpha_vec = asummer(i - 1)
-#         beta_vec = bsummer(i)
-#         # alpha_vec = get_asum(gf, i - 1)
-#         # beta_vec = get_bsum(gf, i)
-#         for yprev in tags:
-#             α = alpha_vec[yprev]
-#             for y in tags:
-#                 ff = fj(yprev, y, gf.xbar, i)
-#                 β = beta_vec[y]
-#                 gfx = gfix.loc[yprev, y]
-#                 ss += ff * α * β * gfx
-#     return ss / za
-
 def expectation2(gf, fj):
+    "Faster matrix multiplication version"
     tags = gf.tags
     n = len(gf.xbar)
     ss = 0
@@ -495,27 +329,9 @@ def expectation2(gf, fj):
         return smat.sum() #.sum()
     
     return sum([sumi(i) for i in range(1, n + 2)]) / za
-        
-    for i in range(1, n + 2):
-        si = 0
-        gfix = np.exp(gf(i).mat)
-        alpha_vec = asummer(i - 1)
-        beta_vec = bsummer(i)
-        fmat = np.array([[fj(yprev, y, gf.xbar, i) for y in tags] for yprev in tags])
-        smat = sdot(alpha_vec, beta_vec) * gfix * fmat
-        #print(alpha_vec, tags)
-        for yprev in tags:
-            α = alpha_vec[yprev]
-            for y in tags:
-                ff = fj(yprev, y, gf.xbar, i)
-                β = beta_vec[y]
-                gfx = gfix.loc[yprev, y]
-                si += ff * α * β * gfx
-                ss += ff * α * β * gfx
-        print('sloop: {}, si: {}, smat: {}'.format(ss, si, smat.sum().sum()))
-    return ss / za
 
 def expectation_(gf, fj):
+    "Slow, looping version"
     n = len(gf.xbar)
     ss = 0
     za = get_asum(gf).END
@@ -531,48 +347,10 @@ def expectation_(gf, fj):
     return ss / za
 
 
-ee = 1
-
-# %time expectation(gf, fs['pre_endx'])
-# e1, e2
-
-
-# In[ ]:
-
-get_ipython().magic('timeit DataFrame(alpha_vec).dot(DataFrame(beta_vec).T)')
-get_ipython().magic('timeit DataFrame(alpha_vec.values[:, None] @ beta_vec.values[:, None].T, columns=alpha_vec.index, index=alpha_vec.index)')
-get_ipython().magic('timeit alpha_vec.values[:, None] @ beta_vec.values[:, None].T')
-
-
-# In[ ]:
-
-get_ipython().magic("time expectation(gf, gfsub.fs['ly_VBZ'])")
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-get_ipython().magic("time expectation2(gf, gfsub.fs['ly_VBZ'])")
-
-
-# In[ ]:
-
-get_ipython().magic("prun -qD profexp.prof expectation2(gf, gfsub.fs['ly_VBZ'])")
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-get_ipython().magic('prun -qD profexp.prof train(Zstrn, gfsub, maxiter=1, tol=.005)')
-
+#     %time expectation2(gf, gfsub.fs['ly_VBZ'])
+#     %prun -qD profexp.prof expectation2(gf, gfsub.fs['ly_VBZ'])
+# 
+#     %prun -qD profexp.prof train(Zstrn, gfsub, maxiter=1, tol=.005)
 
 # ##Partial derivative
 # ###Probability function
@@ -583,10 +361,10 @@ def partial_d(gf, fj, y, Fj=None) -> float:
     f = fj if callable(fj) else gf.fs[fj]
     if Fj is None:
         Fj = FeatUtils.mk_sum(f)
-    ex1 = expectation(gf, f)
+    #ex1 = expectation(gf, f)
     ex2 = expectation2(gf, f)
-    assert np.allclose(ex1, ex2)
-    return Fj(gf.xbar, y) - ex1
+    #assert np.allclose(ex1, ex2)
+    return Fj(gf.xbar, y) - ex2
 
 
 def prob(gf, y, norm=True):
@@ -658,7 +436,6 @@ def mkgf(x=None, corpus=corpus):
     return G(fs=fs, tags=tgs, xbar=x or xs[-1], ws=mkwts1(fs, 1)), ys, zs
 
 def test_corp():
-    
     gf, _, zs = mkgf(x=None, corpus=corpus)
     Fs = z.valmap(FeatUtils.mk_sum, gf.fs)
     
@@ -669,111 +446,65 @@ def test_corp():
     assert sum(runFs(Fs['cap_NNP'])) == 8
     assert sum(runFs(Fs['cap_NN'])) == 1
     assert not sum(runFs(Fs['nocap_START']))
-    
-test_corp()
 
 
 # ## Test Partial
 
-# In[ ]:
-
-Fs = z.valmap(FeatUtils.mk_sum, gf.fs)
-Fs
-
-
-# In[ ]:
-
-Fj = Fs['ly_VBZ']
-Fj(gf.xbar, ybar)
-
-
-# In[ ]:
-
-ybase = ys3[-1].aug[1:-1]
-
-
-# In[ ]:
-
-ybase
-
-
-# In[ ]:
-
-yars = [[t] + ybase for t in gf.tags]
-
-
-# In[ ]:
-
-tgs = sorted(set(gf.tags) - {START, END})
-
+#     Fs = z.valmap(FeatUtils.mk_sum, gf.fs)
+#     Fs
+#     Fj = Fs['ly_VBZ']
+#     Fj(gf.xbar, ybar)
+#     ybase = ys3[-1].aug[1:-1]
+#     ybase
+#     yars = [[t] + ybase for t in gf.tags]
+#     tgs = sorted(set(gf.tags) - {START, END})
 
 # ## All length-3 sequences
 
-# In[ ]:
-
-gf, ys3, zs3 = mkgf(corpus=corp3)
-fj = gf.fs['ly_VBZ']
-# partial_d(gf, fj, ys[-1], Fj=None)
-Y3 = [AugmentY([y1, y2, y3]) for y1 in tgs for y2 in tgs for y3 in tgs ]
-
-
-# In[ ]:
-
-# list(enumerate(Y3))
-ybar = Y3[105]
-ybar
-prob(gf, ybar, norm=False)
-
-
-# In[ ]:
-
-Y3[:2]
-
-
-# In[ ]:
-
-asummer = mk_asum(gf)
-side_by_side(asummer(0), asummer(1), asummer(2), asummer(3), asummer(4), )
-
-
-# In[ ]:
-
-def gcalc(gf, ybar):
-    return np.exp(sum([gf(i)(yp, y) for i, yp, y in zip(count(1), ybar.aug, ybar.aug[1:-1])]))
-
-
-# In[ ]:
-
-gpart = sum(gcalc(gf, y) for y in Y3)
-ps = sum([prob(gf, y, norm=False) for y in Y3])
-assert gpart == ps
-
-
-# In[ ]:
-
-side_by_side(gf(0).mat, np.exp(gf(0).mat), )
-
-
-# In[ ]:
-
-nudge = lambda x, eps=.001: x + eps
-p1 = lambda x: x + 1
-bump = z.partial(nudge, eps=-.001)
-
-zs = zip(*process_corpus(corpus))
-for xi, yi in zs:
-    gf, _ = mkgf(x=xi)
-    for j in gf.fs:
-#         print(j)
-        ws2 = z.update_in(gf.ws, [j], bump)
-        gf2 = gf._replace(ws=ws2)
-        break
-
-print('ly in gf.xbar?:', any(map(lambda x: x.endswith('ly'), gf.xbar)))
-j
-
-
-# gf.diff(gf2)
+#     gf, ys3, zs3 = mkgf(corpus=corp3)
+#     fj = gf.fs['ly_VBZ']
+#     # partial_d(gf, fj, ys[-1], Fj=None)
+#     Y3 = [AugmentY([y1, y2, y3]) for y1 in tgs for y2 in tgs for y3 in tgs ]
+# 
+# 
+#     # list(enumerate(Y3))
+#     ybar = Y3[105]
+#     ybar
+#     prob(gf, ybar, norm=False)
+# 
+# 
+#     Y3[:2]
+# 
+# 
+#     asummer = mk_asum(gf)
+#     side_by_side(asummer(0), asummer(1), asummer(2), asummer(3), asummer(4), )
+# 
+#     def gcalc(gf, ybar):
+#         return np.exp(sum([gf(i)(yp, y) for i, yp, y in zip(count(1), ybar.aug, ybar.aug[1:-1])]))
+# 
+#     gpart = sum(gcalc(gf, y) for y in Y3)
+#     ps = sum([prob(gf, y, norm=False) for y in Y3])
+#     assert gpart == ps
+# 
+#     side_by_side(gf(0).mat, np.exp(gf(0).mat), )
+# 
+#     nudge = lambda x, eps=.001: x + eps
+#     p1 = lambda x: x + 1
+#     bump = z.partial(nudge, eps=-.001)
+# 
+#     zs = zip(*process_corpus(corpus))
+#     for xi, yi in zs:
+#         gf, _ = mkgf(x=xi)
+#         for j in gf.fs:
+#     #         print(j)
+#             ws2 = z.update_in(gf.ws, [j], bump)
+#             gf2 = gf._replace(ws=ws2)
+#             break
+# 
+#     print('ly in gf.xbar?:', any(map(lambda x: x.endswith('ly'), gf.xbar)))
+#     j
+# 
+#     gf.diff(gf2)
 
 # ### Train
 
@@ -787,44 +518,8 @@ fj = gf.fs['ly_VBZ']
 
 # In[ ]:
 
-FeatUtils.bookend = False
-
-
-# In[ ]:
-
-partial_d(gf, fj, x, y, Fj=None)
-
-
-# In[ ]:
-
-get_ipython().magic('prun -qD prof.prof partial_d(gf, fj, x, y, Fj=None)')
-
-
-# In[ ]:
-
-zs[-1][1]
-
-
-# In[ ]:
-
-partial_d(gf, fj, zs[-1][1], Fj=None)
-
-
-# In[ ]:
-
-gf.tags
-
-
-# In[ ]:
-
-del fs
-
-
-# In[ ]:
-
 λ = 1
-fj = gf.fs['ly_VBZ']
-# Fj = Fs['ly_VBZ']
+
 
 def train_(zs: List[Tuple[EasyList, AugmentY]],
           fjid='ly_VBZ', fs=None, ws=None, vb=True, tgs=None):
@@ -869,19 +564,139 @@ def train(zs, gf, ws=None, tol=.001, maxiter=10, vb=False):
 # %time ws1c = train(zs, gf, mkwts1(gf.fs, 1), maxiter=100, tol=.005)
 
 
+# ## Load data
+# 
+# with open('data/pos.train.txt','r') as f:
+#     txt = f.read() #
+# sents = filter(None, [zip(*[e.split() for e in sent.splitlines()]) for sent in txt[:].split('\n\n')])
+# X = map(itg(0), sents)
+# Y_ = map(itg(1), sents)
+# Xa = map(EasyList, X)
+# Ya = map(AugmentY, Y_)
+# tags = sorted({tag for y in Y_ for tag in y if tag.isalpha()})
+# txt[:100]
+# # common bigrams
+# bigs = defaultdict(lambda: defaultdict(int))
+# 
+# for y in Y_:
+#     for t1, t2 in zip(y[:-1], y[1:]):
+#         bigs[t1][t2] += 1
+#         
+# bigd = DataFrame(bigs).fillna(0)[tags].ix[tags]
+# # bigd
+# # sns.clustermap(bigd, annot=1, figsize=(16, 20), fmt='.0f')
+# wcts_all = defaultdict(Counter)
+# for xi, yi in zip(X, Y_):
+#     for xw, yw in zip(xi, yi):
+#         wcts_all[xw][yw] += 1
+# wcts = z.valfilter(lambda x: sum(x.values()) > 4, wcts_all)
+# ' '.join(y)
+# ' '.join(tags)
+
+# ## Evaluation
+# Since I'm maximizing the log-likelihood during testing, that would seem a natural measure to evaluate improvement. I'm a bit suspicious about bugs in my implementation, so I'd like to evaluate Hamming distance to see how much the predictions improve.   
+
+# In[ ]:
+
+def hamming(y, ypred, norm=True):
+    sm = sum(a != b for a, b in zip(y, ypred))
+    return sm / len(y) if norm else sm
+
+
 # In[ ]:
 
 Zs = zip(Xa, Ya)
-
-
-# In[ ]:
-
 Zstrn = Zs[:1]
+Ztst = Zs[50:]
 
 
 # In[ ]:
 
-Ztst = Zs[50:]
+for x, y in Ztst:
+    break
+x
+
+
+# In[ ]:
+
+get_ipython().magic('timeit predict(gf=gg)')
+
+
+# In[ ]:
+
+get_ipython().magic('prun -qD pred.prof predict(gf=gg)')
+
+
+# In[ ]:
+
+import utils; reload(utils); from utils import *
+import crf; reload(crf); from crf import *
+
+
+# In[ ]:
+
+gg = G(fs=crf.fs, tags=sorted([START, END] + tags), xbar=EasyList(x), ws=rand_weights(crf.fs))
+
+gg.Gi
+
+
+# In[ ]:
+
+- profile predict
+    - predict will be fundamentally slow due to the naive use of feature functions
+
+
+# In[ ]:
+
+gg = G(fs=crf.fs, tags=sorted([START, END] + tags), xbar=EasyList(x), ws=rand_weights(crf.fs))
+
+def ev(zs, score=hamming):
+    def eval(x, y):
+        g = gg._replace(xbar=EasyList(x))
+        ypred = predict(gf=g)[0]
+        return score(y.aug, ypred)
+    
+    return Series([eval(x, y) for x, y in zs])
+
+
+# In[ ]:
+
+scores = ev(Ztst[:5])
+
+
+# In[ ]:
+
+scores
+
+
+# In[ ]:
+
+scores.mean()
+
+
+# In[ ]:
+
+hamming(y.aug, ypred, 1)
+
+
+# In[ ]:
+
+y.aug
+
+
+# In[ ]:
+
+ypred, _ = predict(gf=gg)
+
+
+# In[ ]:
+
+y
+
+
+# In[ ]:
+
+gf.
 
 
 # In[ ]:
@@ -918,7 +733,16 @@ get_ipython().magic('time wst2b = train(Zstrn, gf._replace(tags=sorted(tags + [S
 # In[ ]:
 
 get_ipython().magic('time wst2 = train(Zstrn, gf._replace(tags=sorted(tags + [START, END]), ws=rand_weights(gf.fs)), maxiter=5, tol=.005)')
+
+
+# In[ ]:
+
 # %time wst = train(Zstrn, gf._replace(tags=sorted(tags + [START, END])), mkwts1(gf.fs, 1), maxiter=100, tol=.005)
+
+
+# In[ ]:
+
+get_ipython().magic('time wst2 = train(Zstrn, gf._replace(tags=sorted(tags + [START, END]), ws=rand_weights(gf.fs)), maxiter=5, tol=.005)')
 
 
 # In[ ]:
