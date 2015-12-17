@@ -1,8 +1,8 @@
 from itertools import repeat
 from operator import methodcaller as mc
 import toolz.curried as z
-from typing import TypeVar, Dict, Callable  # , Tuple
-from pandas import DataFrame
+from typing import TypeVar, Dict, Callable, List  # , Tuple
+from pandas import DataFrame, Series
 import pandas as pd
 from py3k_imports import map
 

@@ -391,130 +391,9 @@ def partition(gf=None, asummer=None):
 
 #     %prun -qD profex.prof expectation2(gf, fj)
 
-# %time expectation(gf, fj)
-
-# In[ ]:
-
-corpus = '''Nothing seems hard here .//NN VBZ JJ RB .
-The reason is cost .//DT NN VBZ NN .
-Terms were n't disclosed .//NNS VBD RB VBN .
-Mr. Juliano really really thinks so .//NNP NNP RB RB VBZ RB .
-Mr. Bill seems dead .//NNP NNP VBZ JJ .
-Young & Rubicam 's Pact//NNP CC NNP POS NNP
-Albany escaped embarrassingly unscathed .//NNP VBD RB JJ .'''
-
-corp3 = '''Nothing seems hard//NN VBZ JJ
-The reason is//VBZ NN VBZ
-Terms were n't//UNK UNK RB
-Mr. Juliano really really thinks//NNP NNP RB
-Mr. Bill seems//NNP NNP VBZ
-Young & Rubicam//NNP VBZ NNP
-Albany escaped embarrassingly//NNP UNK RB'''
-
-def mk_fx_tag(fx, tag):
-    def f(yp_, y, x, i):
-        return x[i] and fx(x[i]) and (y == tag)
-    f.__name__ = '{}(x)_{}'.format(fx, tag)
-    f.__doc__ = '{}(x[i]) and (y == {})'.format(fx, tag)
-    return f
-
-
-def mkgf(x=None, corpus=corpus):
-    xs, ys = process_corpus(corpus)
-    zs = zip(xs, ys)
-    tgs = sorted({y for ybar in ys for y in ybar.aug})
-
-    iscapped = lambda x: x and x[0].isupper()
-    fs = dict(
-        seems_VBZ=mk_word_tag('seems', 'VBZ'),
-        ly_VBZ=lambda yp, y, x, i: x[i] and x[i].endswith('ly') and (y == 'RB'),
-        cap_NN=mk_fx_tag(iscapped, 'NN'),
-        cap_NNP=mk_fx_tag(iscapped, 'NNP'),
-        nocap_START=lambda yp, y, x, i: x[i] and not iscapped(x[i]) and (yp == START),
-    #     cap_NN=lambda yp, y, x, i: iscapped(x[i]) and (y == 'NN'),
-    )
-    return G(fs=fs, tags=tgs, xbar=x or xs[-1], ws=mkwts1(fs, 1)), ys, zs
-
-def test_corp():
-    gf, _, zs = mkgf(x=None, corpus=corpus)
-    Fs = z.valmap(FeatUtils.mk_sum, gf.fs)
-    
-    def runFs(Fj, zs=zs):
-        return [Fj(x, y) for x, y in zs]
-    
-    assert sum(runFs(Fs['ly_VBZ'])) == 3
-    assert sum(runFs(Fs['cap_NNP'])) == 8
-    assert sum(runFs(Fs['cap_NN'])) == 1
-    assert not sum(runFs(Fs['nocap_START']))
-
-
 # ## Test Partial
 
-#     Fs = z.valmap(FeatUtils.mk_sum, gf.fs)
-#     Fs
-#     Fj = Fs['ly_VBZ']
-#     Fj(gf.xbar, ybar)
-#     ybase = ys3[-1].aug[1:-1]
-#     ybase
-#     yars = [[t] + ybase for t in gf.tags]
-#     tgs = sorted(set(gf.tags) - {START, END})
-
-# ## All length-3 sequences
-
-#     gf, ys3, zs3 = mkgf(corpus=corp3)
-#     fj = gf.fs['ly_VBZ']
-#     # partial_d(gf, fj, ys[-1], Fj=None)
-#     Y3 = [AugmentY([y1, y2, y3]) for y1 in tgs for y2 in tgs for y3 in tgs ]
-# 
-# 
-#     # list(enumerate(Y3))
-#     ybar = Y3[105]
-#     ybar
-#     prob(gf, ybar, norm=False)
-# 
-# 
-#     Y3[:2]
-# 
-# 
-#     asummer = mk_asum(gf)
-#     side_by_side(asummer(0), asummer(1), asummer(2), asummer(3), asummer(4), )
-# 
-#     def gcalc(gf, ybar):
-#         return np.exp(sum([gf(i)(yp, y) for i, yp, y in zip(count(1), ybar.aug, ybar.aug[1:-1])]))
-# 
-#     gpart = sum(gcalc(gf, y) for y in Y3)
-#     ps = sum([prob(gf, y, norm=False) for y in Y3])
-#     assert gpart == ps
-# 
-#     side_by_side(gf(0).mat, np.exp(gf(0).mat), )
-# 
-#     nudge = lambda x, eps=.001: x + eps
-#     p1 = lambda x: x + 1
-#     bump = z.partial(nudge, eps=-.001)
-# 
-#     zs = zip(*process_corpus(corpus))
-#     for xi, yi in zs:
-#         gf, _ = mkgf(x=xi)
-#         for j in gf.fs:
-#     #         print(j)
-#             ws2 = z.update_in(gf.ws, [j], bump)
-#             gf2 = gf._replace(ws=ws2)
-#             break
-# 
-#     print('ly in gf.xbar?:', any(map(lambda x: x.endswith('ly'), gf.xbar)))
-#     j
-# 
-#     gf.diff(gf2)
-
 # ### Train
-
-# gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
-
-# In[ ]:
-
-gf, ys, zs = mkgf(corpus=corpus)
-fj = gf.fs['ly_VBZ']
-
 
 # In[ ]:
 
@@ -522,7 +401,7 @@ fj = gf.fs['ly_VBZ']
 
 
 def train_(zs: List[Tuple[EasyList, AugmentY]],
-          fjid='ly_VBZ', fs=None, ws=None, vb=True, tgs=None):
+          fjid='ly_VBZ', fs=None, ws=None, vb=True, tgs=None, rand=None):
     fj = fs[fjid]
     Fj = FeatUtils.mk_sum(fj)
     pt = testprint(vb)
@@ -530,8 +409,6 @@ def train_(zs: List[Tuple[EasyList, AugmentY]],
         gf_ = G(fs=fs, tags=tgs, xbar=x, ws=ws)
         if not Fj(x, y):  # TODO: is this always right?
             continue
-#         print(gf)
-#         print(gf_)
         pder = partial_d(gf_, fj, y, Fj=Fj)
         wj0 = ws[fjid]
         ws[fjid] += λ * pder
@@ -539,62 +416,82 @@ def train_(zs: List[Tuple[EasyList, AugmentY]],
         pt('pder: {:.2f}'.format(pder), Fj(x, y))
     return ws
 
+
 def train_j(zs: List[Tuple[EasyList, AugmentY]],
-          fjid='ly_VBZ', fs=None, ws=None, tol=.01, maxiter=10, vb=True, tgs=None):
+          fjid='ly_VBZ', fs=None, ws=None, tol=.01, maxiter=10, vb=True, tgs=None, sec=None):
     ws1 = ws
     pt = testprint(vb)
-    
+    st = time.time()
+
     for i in count(1):
+        nr.shuffle(zs)
         pt('Iter', i)
         wj1 = ws1[fjid]
         ws2 = train_(zs, fjid=fjid, fs=fs, ws=ws1, vb=vb, tgs=tgs)
         wj2 = ws2[fjid]
-        if abs((wj2 - wj1) / wj1) < tol or (i >= maxiter):
+        if abs((wj2 - wj1) / wj1) < tol             or (i >= maxiter)             or (sec is not None and (time.time() - st > sec)):
             return ws, i
         ws1 = ws2
         
-def train(zs, gf, ws=None, tol=.001, maxiter=10, vb=False):
+def train(zs_, gf, ws=None, tol=.001, maxiter=10, vb=False, sec=None, seed=1):
     wst = (ws or gf.ws).copy()
+    nr.seed(seed)
+    zs = zs_.copy()
+
+
     for fname, f in gf.fs.items():
-        wst, i = train_j(zs, fjid=fname, fs=gf.fs, ws=wst, tol=tol, maxiter=maxiter, vb=vb, tgs=gf.tags)
-        print(fname, 'trained in', i, 'iters: {:.2f}'.format(wst[fname]))
+        itime = time.time()
+        wst, i = train_j(zs, fjid=fname, fs=gf.fs, ws=wst, tol=tol, maxiter=maxiter, vb=vb, tgs=gf.tags, sec=sec)
+        print(fname, 'trained in', i, 'iters: {:.2f} ({:.2f}s)'.format(wst[fname], time.time() - itime))
         sys.stdout.flush()
     return wst
 
 # %time ws1c = train(zs, gf, mkwts1(gf.fs, 1), maxiter=100, tol=.005)
 
 
-# ## Load data
-# 
-# with open('data/pos.train.txt','r') as f:
-#     txt = f.read() #
-# sents = filter(None, [zip(*[e.split() for e in sent.splitlines()]) for sent in txt[:].split('\n\n')])
-# X = map(itg(0), sents)
-# Y_ = map(itg(1), sents)
-# Xa = map(EasyList, X)
-# Ya = map(AugmentY, Y_)
-# tags = sorted({tag for y in Y_ for tag in y if tag.isalpha()})
-# txt[:100]
-# # common bigrams
-# bigs = defaultdict(lambda: defaultdict(int))
-# 
-# for y in Y_:
-#     for t1, t2 in zip(y[:-1], y[1:]):
-#         bigs[t1][t2] += 1
-#         
-# bigd = DataFrame(bigs).fillna(0)[tags].ix[tags]
-# # bigd
-# # sns.clustermap(bigd, annot=1, figsize=(16, 20), fmt='.0f')
-# wcts_all = defaultdict(Counter)
-# for xi, yi in zip(X, Y_):
-#     for xw, yw in zip(xi, yi):
-#         wcts_all[xw][yw] += 1
-# wcts = z.valfilter(lambda x: sum(x.values()) > 4, wcts_all)
-# ' '.join(y)
-# ' '.join(tags)
-
 # ## Evaluation
-# Since I'm maximizing the log-likelihood during testing, that would seem a natural measure to evaluate improvement. I'm a bit suspicious about bugs in my implementation, so I'd like to evaluate Hamming distance to see how much the predictions improve.   
+# Since I'm maximizing the log-likelihood during testing, that would seem a natural measure to evaluate improvement. I'm a bit suspicious about bugs in my implementation, so I'd like to evaluate Hamming distance between actual $y$ and the predicted sequence see how much the predictions improve. 
+# 
+# ### Load data
+
+# In[ ]:
+
+with open('data/pos.train.txt','r') as f:
+    txt = f.read()
+    
+sents = filter(None, [zip(*[e.split() for e in sent.splitlines()]) for sent in txt[:].split('\n\n')])
+X = map(itg(0), sents)
+Y_ = map(itg(1), sents)
+Xa = map(EasyList, X)
+Ya = map(AugmentY, Y_)
+
+tags = sorted({tag for y in Y_ for tag in y if tag.isalpha()})
+
+
+# In[ ]:
+
+# common bigrams
+bigs = defaultdict(lambda: defaultdict(int))
+
+for y in Y_:
+    for t1, t2 in zip(y[:-1], y[1:]):
+        bigs[t1][t2] += 1
+bigd = DataFrame(bigs).fillna(0)[tags].ix[tags]
+
+wcts_all = defaultdict(Counter)
+for xi, yi in zip(X, Y_):
+    for xw, yw in zip(xi, yi):
+        wcts_all[xw][yw] += 1
+
+
+# In[ ]:
+
+# Split training and testing examples
+Zs = zip(Xa, Ya)
+print(len(Zs), 'examples')
+Zstrn = Zs[:100]
+Ztst = Zs[100:201]  # it's too slow right now, so 100 examples in each set should do
+
 
 # In[ ]:
 
@@ -605,366 +502,54 @@ def hamming(y, ypred, norm=True):
 
 # In[ ]:
 
-Zs = zip(Xa, Ya)
-Zstrn = Zs[:1]
-Ztst = Zs[50:]
+gf = G(fs=fs, tags=tgs, xbar=x, ws=ws)
+
+gf, ys, zs = mkgf(corpus=corpus)
+fj = gf.fs['ly_VBZ']
 
 
 # In[ ]:
 
-for x, y in Ztst:
-    break
-x
+fs0 = crf.fs
+ws0 = rand_weights(fs, seed=0)
+gf0 = G(fs=fs0, tags=sorted([START, END] + tags), xbar=EasyList(['']), ws=ws0)
 
 
 # In[ ]:
 
-get_ipython().magic('timeit predict(gf=gg)')
+get_ipython().magic('time hams0 = [hamming(y.aug[1:-2], predict(gf=gf0._replace(xbar=x))[0][1:-2]) for x, y in Ztst[:]]')
 
 
 # In[ ]:
 
-get_ipython().magic('prun -qD pred.prof predict(gf=gg)')
+print('Initial error rate with random weights: {:.2%}'.format(np.mean(hams0)))
+
+
+# This training takes forever...not recommended
+# 
+#     %time ws_trn = train(Zstrn[:], gf, ws1e, maxiter=100, tol=.0005, sec=None, seed=3)
+
+# In[ ]:
+
+ws_trn = {'cap_nnp': 5.42, 'dig_cd': 6.2, 'dt_in': 3.26,
+ 'fst_dt': 4.44, 'fst_nnp': 1.49, 'last_nn': 7.34,
+ 'post_mr': 6.68, 'wd_a': 10.17, 'wd_and': 10.64,
+ 'wd_for': 10.51, 'wd_in': 10.50, 'wd_of': 10.64,
+ 'wd_the': 12.9, 'wd_to': 11.18}
 
 
 # In[ ]:
 
-import utils; reload(utils); from utils import *
-import crf; reload(crf); from crf import *
+gf_trn = gf._replace(ws=ws_trn)
+get_ipython().magic('time hams_trn = [hamming(y.aug[1:-2], predict(gf=gf_trn._replace(xbar=x))[0][1:-2]) for x, y in Ztst[:]]')
+print('Error rate after training weights: {:.2%}'.format(np.mean(hams_trn)))
 
 
-# In[ ]:
-
-gg = G(fs=crf.fs, tags=sorted([START, END] + tags), xbar=EasyList(x), ws=rand_weights(crf.fs))
-
-gg.Gi
-
+# The 78% to 64% error rate decrease seems to be a decent improvement, considering the small number of feature functions.
 
 # In[ ]:
 
-- profile predict
-    - predict will be fundamentally slow due to the naive use of feature functions
-
-
-# In[ ]:
-
-gg = G(fs=crf.fs, tags=sorted([START, END] + tags), xbar=EasyList(x), ws=rand_weights(crf.fs))
-
-def ev(zs, score=hamming):
-    def eval(x, y):
-        g = gg._replace(xbar=EasyList(x))
-        ypred = predict(gf=g)[0]
-        return score(y.aug, ypred)
-    
-    return Series([eval(x, y) for x, y in zs])
-
-
-# In[ ]:
-
-scores = ev(Ztst[:5])
-
-
-# In[ ]:
-
-scores
-
-
-# In[ ]:
-
-scores.mean()
-
-
-# In[ ]:
-
-hamming(y.aug, ypred, 1)
-
-
-# In[ ]:
-
-y.aug
-
-
-# In[ ]:
-
-ypred, _ = predict(gf=gg)
-
-
-# In[ ]:
-
-y
-
-
-# In[ ]:
-
-gf.
-
-
-# In[ ]:
-
-tags
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-gfsub = gf._replace(fs=dict(ly_VBZ=gf.fs['ly_VBZ']))
-gfsub = gfsub._replace(ws=rand_weights(gfsub.fs), tags=sorted(tags + [START, END]))
-
-
-# In[ ]:
-
-get_ipython().magic('prun -qD proftrn.prof train(Zstrn, gfsub, maxiter=1, tol=.005)')
-
-
-# In[ ]:
-
-get_ipython().magic('prun -qD proftrn.prof train(Zstrn, gf._replace(tags=sorted(tags + [START, END]), ws=rand_weights(gf.fs)), maxiter=1, tol=.005)')
-
-
-# In[ ]:
-
-get_ipython().magic('time wst2b = train(Zstrn, gf._replace(tags=sorted(tags + [START, END]), ws=rand_weights(gf.fs)), maxiter=5, tol=.005)')
-
-
-# In[ ]:
-
-get_ipython().magic('time wst2 = train(Zstrn, gf._replace(tags=sorted(tags + [START, END]), ws=rand_weights(gf.fs)), maxiter=5, tol=.005)')
-
-
-# In[ ]:
-
-# %time wst = train(Zstrn, gf._replace(tags=sorted(tags + [START, END])), mkwts1(gf.fs, 1), maxiter=100, tol=.005)
-
-
-# In[ ]:
-
-get_ipython().magic('time wst2 = train(Zstrn, gf._replace(tags=sorted(tags + [START, END]), ws=rand_weights(gf.fs)), maxiter=5, tol=.005)')
-
-
-# In[ ]:
-
-Ya[:2]
-
-
-# In[ ]:
-
-gf_ = gf._replace(ws=wst2)
-for x, y in Ztst[:5]:
-    gfx = gf_._replace(xbar=x)
-    ypred, sc = predict(gf=gfx)
-    print(DataFrame(zip(gfx.xbar, ypred, y.aug)))
-#     break
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-predict()
-
-
-# wst == {'cap_NN': 5.5770337170150999,
-#  'cap_NNP': 6.5795482596835342,
-#  'ly_VBZ': 7.1610907498951821,
-#  'nocap_START': -4.0968133029466216,
-#  'seems_VBZ': 1}
-#  
-#  wst2 == {'cap_NN': 5.6535298922935278,
-#  'cap_NNP': 6.6593411043988899,
-#  'ly_VBZ': 7.2107462564832634,
-#  'nocap_START': -4.0972608563379938,
-#  'seems_VBZ': 1.8675579901499675}
-
-# In[ ]:
-
-def likelihood(gf, zs, ws=None):
-    if ws:
-        gf = gf._replace(ws=ws)
-    return sum([prob(gf._replace(xbar=x), y, norm=False) for x, y in zs]) / (len(zs) * partition(gf))
-    for x, y in zs:
-        gfx = gf._replace(xbar=x, ws=ws1c)
-        print(prob(gfx, y, norm=False))
-
-
-# In[ ]:
-
-likelihood(gf, Ztst, ws=None)
-
-
-# In[ ]:
-
-rand_weights(gf.fs)
-
-
-# In[ ]:
-
-partition(gf)
-
-
-# In[ ]:
-
-likelihood(gf, Ztst, ws=ws1c)
-
-
-# In[ ]:
-
-Xa
-Ya
-tags
-
-
-# In[ ]:
-
-for x, y in zs:
-    gfx = gf._replace(xbar=x)
-    print(prob(gfx, y, norm=False))
-
-
-# In[ ]:
-
-for x, y in zs:
-    gfx = gf._replace(xbar=x, ws=ws1c)
-    print(prob(gfx, y, norm=False))
-
-
-# In[ ]:
-
-prob(gf, )
-
-
-# In[ ]:
-
-ws1c
-
-
-# In[ ]:
-
-train()
-
-
-# In[ ]:
-
-train_j(zs, fjid='ly_VBZ', ws=ws)
-
-
-# In[ ]:
-
-get_ipython().magic('time ws1 = train(zs, fs, mkwts1(fs, 1), maxiter=1)')
-
-
-# In[ ]:
-
-ws1c
-
-
-# In[ ]:
-
-ws1
-
-
-# In[ ]:
-
-# ws3 = train(zs, fs, mkwts1(fs, 1))
-ws3 = train(zs, fs, ws3, vb=False, maxiter=20, tol=.01)
-
-
-# In[ ]:
-
-ws3
-
-
-# In[ ]:
-
-ws2
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-ws2 = train(zs, fjid='ly_VBZ', ws=ws)
-
-
-# In[ ]:
-
-ws2
-
-
-# In[ ]:
-
-ws3 = train(zs, fjid='ly_VBZ', ws=ws2)
-
-
-# In[ ]:
-
-ws3
-
-
-# In[ ]:
-
-ws2 = ws.copy
-
-
-# In[ ]:
-
-gf.ws['ly_VBZ']
-
-
-# In[ ]:
-
-gf.ws['ly_VBZ'] -= 1
-
-
-# In[ ]:
-
-gf._replace(ws=z.valmap(lambda x: x + 1, ws))
-
-
-# In[ ]:
-
-gf.ws = ws
-
-
-# In[ ]:
-
-for Fj 
-
-
-# In[ ]:
-
-fs
-
-
-# In[ ]:
-
-
-
-
-# In[ ]:
-
-xs, ys
-
-
-# In[ ]:
-
-fives = [(x, y) for x, y in zip(X, Y_) if len(x) == 5]
-fives = DataFrame(fives).applymap(' '.join)
-fives
-
-
-# In[ ]:
-
-Series(map(len, X)).value_counts(normalize=0)
+get_ipython().system('osascript -e beep')
 
 
 # ## Extra
